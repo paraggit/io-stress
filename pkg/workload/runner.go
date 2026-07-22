@@ -229,7 +229,7 @@ func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, al
 
 func cleanup(ctx context.Context, client *k8s.Client, cfg *config.Config) {
 	log.Printf("Cleaning up resources in namespace %s", cfg.Cluster.Namespace)
-	
+
 	// Clean up RBD resources
 	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
 		for _, name := range []string{
@@ -240,7 +240,7 @@ func cleanup(ctx context.Context, client *k8s.Client, cfg *config.Config) {
 			k8s.DeletePod(ctx, client, cfg.Cluster.Namespace, name)
 		}
 	}
-	
+
 	// Clean up CephFS resources
 	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
 		for _, name := range []string{
@@ -252,7 +252,7 @@ func cleanup(ctx context.Context, client *k8s.Client, cfg *config.Config) {
 			k8s.DeletePod(ctx, client, cfg.Cluster.Namespace, name)
 		}
 	}
-	
+
 	// Clean up RBD PVCs
 	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
 		for _, suffix := range []string{"pvc", "clone-pvc", "restored-pvc"} {
@@ -260,7 +260,7 @@ func cleanup(ctx context.Context, client *k8s.Client, cfg *config.Config) {
 			k8s.DeletePVC(ctx, client, cfg.Cluster.Namespace, name)
 		}
 	}
-	
+
 	// Clean up CephFS PVCs
 	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
 		for _, suffix := range []string{"pvc", "clone-pvc", "restored-pvc"} {
@@ -268,19 +268,19 @@ func cleanup(ctx context.Context, client *k8s.Client, cfg *config.Config) {
 			k8s.DeletePVC(ctx, client, cfg.Cluster.Namespace, name)
 		}
 	}
-	
+
 	// Clean up RBD snapshots
 	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
 		snapName := fmt.Sprintf("%s-rbd-snap-%d", cfg.Cluster.Prefix, i)
 		k8s.DeleteSnapshot(ctx, client, cfg.Cluster.Namespace, snapName)
 	}
-	
+
 	// Clean up CephFS snapshots
 	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
 		snapName := fmt.Sprintf("%s-cephfs-snap-%d", cfg.Cluster.Prefix, i)
 		k8s.DeleteSnapshot(ctx, client, cfg.Cluster.Namespace, snapName)
 	}
-	
+
 	k8s.DeleteNamespace(ctx, client, cfg.Cluster.Namespace)
 	log.Printf("Cleanup complete")
 }

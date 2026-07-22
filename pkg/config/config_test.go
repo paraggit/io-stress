@@ -65,6 +65,19 @@ func TestValidate(t *testing.T) {
 		{"empty pattern name", func(c *Config) {
 			c.Tools.FIO.Suites.Common = []Pattern{{Name: "", Params: map[string]string{"rw": "read"}}}
 		}, true},
+		{"empty common suite when stress not skipped", func(c *Config) {
+			c.Tools.FIO.Suites.Common = []Pattern{}
+		}, true},
+		{"empty common suite ok when stress skipped", func(c *Config) {
+			c.Cluster.SkipFIOStress = true
+			c.Tools.FIO.Suites.Common = []Pattern{}
+		}, false},
+		{"negative RBD NumPVC", func(c *Config) {
+			c.Cluster.RBD.NumPVC = -1
+		}, true},
+		{"negative CephFS NumPVC", func(c *Config) {
+			c.Cluster.CephFS.NumPVC = -1
+		}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

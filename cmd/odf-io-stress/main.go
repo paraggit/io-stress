@@ -60,7 +60,7 @@ func main() {
 	def := config.NewDefault()
 	f := runCmd.Flags()
 	f.StringVar(&configPath, "config", "", "Path to YAML/JSON config file")
-	f.Int("num-pvc", def.Cluster.RBD.NumPVC, "Set both RBD and CephFS PVC counts")
+	f.IntP("num-pvc", "n", def.Cluster.RBD.NumPVC, "Set both RBD and CephFS PVC counts")
 	f.Int("rbd-num-pvc", def.Cluster.RBD.NumPVC, "Number of RBD PVC/pod pairs")
 	f.Int("cephfs-num-pvc", def.Cluster.CephFS.NumPVC, "Number of CephFS PVC/pod pairs")
 	f.StringP("namespace", "N", def.Cluster.Namespace, "Kubernetes namespace")

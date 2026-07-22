@@ -126,6 +126,21 @@ func Validate(cfg *Config) error {
 	if cfg.Cluster.ExpandFactor < 1 {
 		return fmt.Errorf("expand-factor must be >= 1, got %d", cfg.Cluster.ExpandFactor)
 	}
+	// Validate empty FIO suites when stress not skipped
+	if !cfg.Cluster.SkipFIOStress && (cfg.Cluster.RBD.NumPVC > 0 || cfg.Cluster.CephFS.NumPVC > 0) {
+		if len(cfg.Tools.FIO.Suites.Common) == 0 {
+			return fmt.Errorf("when skip_fio_stress is false and volumes will be created, at least one common FIO pattern must be defined")
+		}
+	}
+
+	// Validate negative NumPVC
+	if cfg.Cluster.RBD.NumPVC < 0 {
+		return fmt.Errorf("rbd.num_pvc must not be negative, got %d", cfg.Cluster.RBD.NumPVC)
+	}
+	if cfg.Cluster.CephFS.NumPVC < 0 {
+		return fmt.Errorf("cephfs.num_pvc must not be negative, got %d", cfg.Cluster.CephFS.NumPVC)
+	}
+
 	for _, p := range allPatterns(cfg.Tools.FIO.Suites) {
 		if p.Name == "" {
 			return fmt.Errorf("pattern name must not be empty")

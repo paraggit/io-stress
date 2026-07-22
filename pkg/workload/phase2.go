@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
 	"github.com/red-hat-storage/odf-io-stress/pkg/fio"

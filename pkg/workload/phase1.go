@@ -142,6 +142,11 @@ func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Clie
 				return fmt.Errorf("wait RWX pod %s: %w", secondPodName, err)
 			}
 
+			if len(rwxJobs) < 2 {
+				log.Printf("Warning: CephFS RWX test requires at least 2 jobs, but got %d; skipping RWX test for pod %s", len(rwxJobs), pod.Name)
+				return nil
+			}
+
 			writeJob := rwxJobs[0]
 			readJob := rwxJobs[1]
 
