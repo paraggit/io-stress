@@ -91,6 +91,14 @@ func PatchPVCSize(ctx context.Context, c *Client, namespace, name, newSize strin
 	return nil
 }
 
+func DeletePVC(ctx context.Context, c *Client, namespace, name string) error {
+	err := c.Clientset.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("delete PVC %s: %w", name, err)
+	}
+	return nil
+}
+
 func GetPVCCapacity(ctx context.Context, c *Client, namespace, name string) (string, error) {
 	pvc, err := c.Clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {

@@ -1,10 +1,13 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
+	"github.com/red-hat-storage/odf-io-stress/pkg/workload"
 	"github.com/spf13/cobra"
 )
 
@@ -26,8 +29,11 @@ func main() {
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
-			fmt.Printf("Config: %+v\n", cfg)
-			return nil
+
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
+			return workload.Run(ctx, cfg)
 		},
 	}
 

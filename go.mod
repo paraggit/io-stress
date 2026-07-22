@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/spf13/cobra v1.8.1
+	golang.org/x/sync v0.19.0
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
 	k8s.io/client-go v0.36.2
