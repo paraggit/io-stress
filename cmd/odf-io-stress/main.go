@@ -29,6 +29,9 @@ func main() {
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
+			if cfg.DryRun {
+				return workload.DryRun(cfg)
+			}
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
