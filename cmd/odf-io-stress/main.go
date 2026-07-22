@@ -60,6 +60,7 @@ func main() {
 	def := config.NewDefault()
 	f := runCmd.Flags()
 	f.StringVar(&configPath, "config", "", "Path to YAML/JSON config file")
+	f.String("kubeconfig", def.Cluster.Kubeconfig, "Path to kubeconfig (default: KUBECONFIG or ~/.kube/config)")
 	f.IntP("num-pvc", "n", def.Cluster.RBD.NumPVC, "Set both RBD and CephFS PVC counts")
 	f.Int("rbd-num-pvc", def.Cluster.RBD.NumPVC, "Number of RBD PVC/pod pairs")
 	f.Int("cephfs-num-pvc", def.Cluster.CephFS.NumPVC, "Number of CephFS PVC/pod pairs")

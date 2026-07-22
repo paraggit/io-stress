@@ -19,6 +19,9 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	get("namespace", func() {
 		cfg.Cluster.Namespace, err = fs.GetString("namespace")
 	})
+	get("kubeconfig", func() {
+		cfg.Cluster.Kubeconfig, err = fs.GetString("kubeconfig")
+	})
 	get("num-pvc", func() {
 		var n int
 		n, err = fs.GetInt("num-pvc")

@@ -25,7 +25,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("create results dir: %w", err)
 	}
 
-	client, err := k8s.NewClient()
+	client, err := k8s.NewClient(cfg.Cluster.Kubeconfig)
 	if err != nil {
 		return fmt.Errorf("create k8s client: %w", err)
 	}

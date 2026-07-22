@@ -11,11 +11,13 @@ func TestApplyChangedFlags(t *testing.T) {
 	fs.Int("num-pvc", 4, "")
 	fs.Int("rbd-num-pvc", 4, "")
 	fs.String("namespace", "odf-io-stress", "")
-	_ = fs.Parse([]string{"--namespace", "ns2", "--rbd-num-pvc", "1"})
+	fs.String("kubeconfig", "", "")
+	_ = fs.Parse([]string{"--namespace", "ns2", "--rbd-num-pvc", "1", "--kubeconfig", "/tmp/kc"})
 
 	cfg := NewDefault()
 	cfg.Cluster.Namespace = "from-file"
 	cfg.Cluster.RBD.NumPVC = 9
+	cfg.Cluster.Kubeconfig = "from-file"
 
 	if err := ApplyChangedFlags(fs, cfg); err != nil {
 		t.Fatal(err)
@@ -29,6 +31,9 @@ func TestApplyChangedFlags(t *testing.T) {
 	}
 	if cfg.Cluster.CephFS.NumPVC != 4 { // unchanged
 		t.Errorf("cephfs=%d, want 4", cfg.Cluster.CephFS.NumPVC)
+	}
+	if cfg.Cluster.Kubeconfig != "/tmp/kc" {
+		t.Errorf("kubeconfig=%q, want /tmp/kc", cfg.Cluster.Kubeconfig)
 	}
 }
 

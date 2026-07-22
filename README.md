@@ -6,7 +6,7 @@ ODF IO stress testing tool for RBD and CephFS. It creates PVC/pod pairs on an Op
 
 - Go 1.26+
 - Access to an OpenShift/Kubernetes cluster with ODF (RBD and CephFS StorageClasses)
-- `kubeconfig` configured (`KUBECONFIG` or `~/.kube/config`)
+- Cluster access via kubeconfig (`--kubeconfig`, `cluster.kubeconfig`, `KUBECONFIG`, or `~/.kube/config`)
 
 ## Build
 
@@ -46,6 +46,9 @@ Run without `--config` uses built-in defaults (same effective behavior as before
 ./odf-io-stress run --config odf-io-stress.yaml
 ./odf-io-stress run --config config.json --rbd-num-pvc 2 --runtime 30
 
+# Target a specific cluster
+./odf-io-stress run --kubeconfig ~/.kube/my-odf.kubeconfig
+
 # Preview manifests without creating resources
 ./odf-io-stress run --dry-run
 
@@ -74,6 +77,7 @@ Format is detected by file extension (`.yaml`, `.yml`, or `.json`).
 ```yaml
 cluster:
   namespace: odf-io-stress
+  kubeconfig: ""   # empty → KUBECONFIG env or ~/.kube/config
   rbd:
     num_pvc: 4
     storage_class: ocs-storagecluster-ceph-rbd
@@ -113,6 +117,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--config` | _(none)_ | Path to YAML (`.yaml`/`.yml`) or JSON (`.json`) config file |
+| `--kubeconfig` | _(default loading)_ | Path to kubeconfig (else `KUBECONFIG` or `~/.kube/config`) |
 | `-n, --num-pvc` | `4` | Set both RBD and CephFS PVC/pod counts |
 | `--rbd-num-pvc` | `4` | RBD PVC/pod pairs |
 | `--cephfs-num-pvc` | `4` | CephFS PVC/pod pairs |

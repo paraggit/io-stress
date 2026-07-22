@@ -12,6 +12,7 @@ type Config struct {
 
 type Cluster struct {
 	Namespace         string   `yaml:"namespace" json:"namespace"`
+	Kubeconfig        string   `yaml:"kubeconfig" json:"kubeconfig"`
 	RBD               Backend  `yaml:"rbd" json:"rbd"`
 	CephFS            Backend  `yaml:"cephfs" json:"cephfs"`
 	PVCSize           string   `yaml:"pvc_size" json:"pvc_size"`

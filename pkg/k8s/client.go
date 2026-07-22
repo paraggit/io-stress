@@ -13,8 +13,13 @@ type Client struct {
 	RestConfig *rest.Config
 }
 
-func NewClient() (*Client, error) {
+// NewClient builds a Kubernetes client. When kubeconfigPath is empty, the
+// standard loading rules apply (KUBECONFIG env, then ~/.kube/config).
+func NewClient(kubeconfigPath string) (*Client, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kubeconfigPath != "" {
+		loadingRules.ExplicitPath = kubeconfigPath
+	}
 	configOverrides := &clientcmd.ConfigOverrides{}
 	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 
