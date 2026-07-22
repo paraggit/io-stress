@@ -77,3 +77,50 @@ func TestValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultSuitesJobNames(t *testing.T) {
+	s := NewDefault().Tools.FIO.Suites
+	common := names(s.Common)
+	for _, n := range []string{
+		"unaligned-direct", "unaligned-buffered", "unaligned-randread",
+		"obj-boundary-3m", "obj-boundary-5m", "mixed-bs-verify",
+		"data-integrity-4k", "seq-write-verify", "high-iodepth-stress",
+		"overwrite-frag-stress", "high-concurrency-randrw", "compress-pattern-stress",
+	} {
+		if !common[n] {
+			t.Errorf("common missing %q", n)
+		}
+	}
+	fs := names(s.Filesystem)
+	for _, n := range []string{"truncate-write", "fsync-stress", "fdatasync-mixed", "append-write"} {
+		if !fs[n] {
+			t.Errorf("filesystem missing %q", n)
+		}
+	}
+	block := names(s.Block)
+	for _, n := range []string{"trim-write-interleave", "trim-stress", "write-zeroes", "sub-4k-rmw"} {
+		if !block[n] {
+			t.Errorf("block missing %q", n)
+		}
+	}
+	rwx := names(s.CephFSRWX)
+	for _, n := range []string{"rwx-concurrent-write", "rwx-read-while-write"} {
+		if !rwx[n] {
+			t.Errorf("cephfs_rwx missing %q", n)
+		}
+	}
+	life := names(s.Lifecycle)
+	for _, n := range []string{"data-integrity-4k", "high-iodepth-stress"} {
+		if !life[n] {
+			t.Errorf("lifecycle missing %q", n)
+		}
+	}
+}
+
+func names(patterns []Pattern) map[string]bool {
+	m := map[string]bool{}
+	for _, p := range patterns {
+		m[p.Name] = true
+	}
+	return m
+}
