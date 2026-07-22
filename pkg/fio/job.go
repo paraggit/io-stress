@@ -23,72 +23,22 @@ func BuildArgs(j Job, target string, outputFormat string) []string {
 }
 
 func JobsForVolume(storageType string, volumeMode string, cfg *config.Config) []Job {
-	var jobs []Job
-	jobs = append(jobs, commonJobs(cfg)...)
-
+	s := cfg.Tools.FIO.Suites
+	fioCfg := cfg.Tools.FIO
+	jobs := PatternsToJobs(s.Common, fioCfg)
 	if volumeMode == "Filesystem" {
-		jobs = append(jobs, filesystemJobs(cfg)...)
+		jobs = append(jobs, PatternsToJobs(s.Filesystem, fioCfg)...)
 	} else {
-		jobs = append(jobs, blockJobs(cfg)...)
+		jobs = append(jobs, PatternsToJobs(s.Block, fioCfg)...)
 	}
-
 	return jobs
 }
 
 func ReducedSuite(target string, cfg *config.Config) []Job {
-	rt := fmt.Sprintf("%d", cfg.FIORuntime)
-	return []Job{
-		{
-			Name:     "data-integrity-4k",
-			Category: "lifecycle",
-			Args: []string{
-				"--rw=randrw", "--rwmixread=50", "--bs=4k",
-				"--size=" + cfg.FIOSize,
-				"--ioengine=libaio", "--direct=1", "--iodepth=32",
-				"--time_based=1", "--runtime=" + rt,
-				"--verify=crc32c", "--verify_backlog=256",
-				"--verify_fatal=1", "--verify_dump=1",
-				"--random_generator=lfsr", "--group_reporting=1",
-			},
-		},
-		{
-			Name:     "high-iodepth-stress",
-			Category: "lifecycle",
-			Args: []string{
-				"--rw=randwrite", "--bs=4k",
-				"--size=" + cfg.FIOSize,
-				"--ioengine=libaio", "--direct=1", "--iodepth=128",
-				"--time_based=1", "--runtime=" + rt,
-				"--group_reporting=1",
-			},
-		},
-	}
+	_ = target
+	return PatternsToJobs(cfg.Tools.FIO.Suites.Lifecycle, cfg.Tools.FIO)
 }
 
 func CephFSRWXJobs(cfg *config.Config) []Job {
-	rt := fmt.Sprintf("%d", cfg.FIORuntime)
-	return []Job{
-		{
-			Name:     "rwx-concurrent-write",
-			Category: "cephfs",
-			Args: []string{
-				"--rw=randwrite", "--bs=4k",
-				"--size=" + cfg.FIOSize,
-				"--ioengine=libaio", "--direct=1", "--iodepth=16",
-				"--time_based=1", "--runtime=" + rt,
-				"--group_reporting=1",
-			},
-		},
-		{
-			Name:     "rwx-read-while-write",
-			Category: "cephfs",
-			Args: []string{
-				"--rw=randread", "--bs=4k",
-				"--size=" + cfg.FIOSize,
-				"--ioengine=libaio", "--direct=1", "--iodepth=16",
-				"--time_based=1", "--runtime=" + rt,
-				"--group_reporting=1",
-			},
-		},
-	}
+	return PatternsToJobs(cfg.Tools.FIO.Suites.CephFSRWX, cfg.Tools.FIO)
 }
