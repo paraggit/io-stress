@@ -21,8 +21,8 @@ import (
 func runPhase2(ctx context.Context, cfg *config.Config, client *k8s.Client, readyPods []PodInfo, collector *report.Collector) error {
 	log.Println("═══ PHASE 2: LIFECYCLE STORM ═══")
 
-	rbdSnapClass := cfg.SnapshotClass
-	cephfsSnapClass := cfg.SnapshotClass
+	rbdSnapClass := cfg.Cluster.SnapshotClass
+	cephfsSnapClass := cfg.Cluster.SnapshotClass
 	if rbdSnapClass == "" {
 		rbdSnapClass, _ = k8s.DetectSnapshotClass(ctx, client, "rbd.csi.ceph.com")
 	}
@@ -39,19 +39,19 @@ func runPhase2(ctx context.Context, cfg *config.Config, client *k8s.Client, read
 
 	var lifecyclePods []PodInfo
 	for _, pod := range readyPods {
-		if pod.Index%cfg.LifecycleInterval == 0 {
+		if pod.Index%cfg.Cluster.LifecycleInterval == 0 {
 			lifecyclePods = append(lifecyclePods, pod)
 		}
 	}
 
 	if len(lifecyclePods) == 0 {
-		log.Printf("WARNING: No pods selected for lifecycle storm (interval=%d)", cfg.LifecycleInterval)
+		log.Printf("WARNING: No pods selected for lifecycle storm (interval=%d)", cfg.Cluster.LifecycleInterval)
 		return nil
 	}
 	log.Printf("Selected %d pods for lifecycle storm", len(lifecyclePods))
 
 	g, ctx := errgroup.WithContext(ctx)
-	if !cfg.Parallel {
+	if !cfg.Tools.FIO.Parallel {
 		g.SetLimit(1)
 	}
 
@@ -92,18 +92,18 @@ func runLifecycleOnPod(ctx context.Context, cfg *config.Config, client *k8s.Clie
 }
 
 func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
-	clonePVCName := fmt.Sprintf("%s-%s-clone-pvc-%d", cfg.Prefix, pod.StorageType, pod.Index)
-	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Prefix, pod.StorageType, pod.Index)
+	clonePVCName := fmt.Sprintf("%s-%s-clone-pvc-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
+	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 
 	log.Printf("[%s] CLONE: Creating clone PVC %s", pod.Name, clonePVCName)
 	err := k8s.CreatePVC(ctx, client, k8s.PVCSpec{
 		Name:         clonePVCName,
-		Namespace:    cfg.Namespace,
+		Namespace:    cfg.Cluster.Namespace,
 		StorageClass: storageClassForPod(cfg, pod),
-		Size:         cfg.PVCSize,
+		Size:         cfg.Cluster.PVCSize,
 		VolumeMode:   pod.VolumeMode,
 		AccessModes:  accessModesForPod(pod),
-		Labels:       map[string]string{"app": cfg.Prefix, "role": "clone"},
+		Labels:       map[string]string{"app": cfg.Cluster.Prefix, "role": "clone"},
 		DataSource: &corev1.TypedLocalObjectReference{
 			Kind: "PersistentVolumeClaim",
 			Name: pod.PVCName,
@@ -115,7 +115,7 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 		return
 	}
 
-	if err := k8s.WaitPVCBound(ctx, client, cfg.Namespace, clonePVCName, cfg.WaitTimeout); err != nil {
+	if err := k8s.WaitPVCBound(ctx, client, cfg.Cluster.Namespace, clonePVCName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 		log.Printf("[%s] FAIL: CLONE: PVC not Bound: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: clonePodName, Job: "clone-bound", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
@@ -123,11 +123,11 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 
 	err = k8s.CreatePod(ctx, client, k8s.PodSpec{
 		Name:       clonePodName,
-		Namespace:  cfg.Namespace,
-		Image:      cfg.FIOImage,
+		Namespace:  cfg.Cluster.Namespace,
+		Image:      cfg.Tools.FIO.Image,
 		PVCName:    clonePVCName,
 		VolumeMode: pod.VolumeMode,
-		Labels:     map[string]string{"app": cfg.Prefix, "role": "clone"},
+		Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "clone"},
 		Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
 	})
 	if err != nil {
@@ -135,7 +135,7 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 		return
 	}
 
-	if err := k8s.WaitPodReady(ctx, client, cfg.Namespace, clonePodName, cfg.WaitTimeout); err != nil {
+	if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, clonePodName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 		log.Printf("[%s] FAIL: CLONE: pod not Ready: %v", pod.Name, err)
 		return
 	}
@@ -156,18 +156,18 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 		return
 	}
 
-	snapName := fmt.Sprintf("%s-%s-snap-%d", cfg.Prefix, pod.StorageType, pod.Index)
-	restoredPVCName := fmt.Sprintf("%s-%s-restored-pvc-%d", cfg.Prefix, pod.StorageType, pod.Index)
-	restoredPodName := fmt.Sprintf("%s-%s-restored-pod-%d", cfg.Prefix, pod.StorageType, pod.Index)
+	snapName := fmt.Sprintf("%s-%s-snap-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
+	restoredPVCName := fmt.Sprintf("%s-%s-restored-pvc-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
+	restoredPodName := fmt.Sprintf("%s-%s-restored-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 
 	log.Printf("[%s] SNAPSHOT: Creating VolumeSnapshot %s", pod.Name, snapName)
-	if err := k8s.CreateSnapshot(ctx, client, cfg.Namespace, snapName, pod.PVCName, snapClass); err != nil {
+	if err := k8s.CreateSnapshot(ctx, client, cfg.Cluster.Namespace, snapName, pod.PVCName, snapClass); err != nil {
 		log.Printf("[%s] FAIL: SNAPSHOT: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "snapshot-create", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
 	}
 
-	if err := k8s.WaitSnapshotReady(ctx, client, cfg.Namespace, snapName, cfg.WaitTimeout); err != nil {
+	if err := k8s.WaitSnapshotReady(ctx, client, cfg.Cluster.Namespace, snapName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 		log.Printf("[%s] FAIL: SNAPSHOT: not ready: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "snapshot-ready", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
@@ -176,12 +176,12 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 	apiGroup := "snapshot.storage.k8s.io"
 	err := k8s.CreatePVC(ctx, client, k8s.PVCSpec{
 		Name:         restoredPVCName,
-		Namespace:    cfg.Namespace,
+		Namespace:    cfg.Cluster.Namespace,
 		StorageClass: storageClassForPod(cfg, pod),
-		Size:         cfg.PVCSize,
+		Size:         cfg.Cluster.PVCSize,
 		VolumeMode:   pod.VolumeMode,
 		AccessModes:  accessModesForPod(pod),
-		Labels:       map[string]string{"app": cfg.Prefix, "role": "restored"},
+		Labels:       map[string]string{"app": cfg.Cluster.Prefix, "role": "restored"},
 		DataSource: &corev1.TypedLocalObjectReference{
 			APIGroup: &apiGroup,
 			Kind:     "VolumeSnapshot",
@@ -193,18 +193,18 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 		return
 	}
 
-	if err := k8s.WaitPVCBound(ctx, client, cfg.Namespace, restoredPVCName, cfg.WaitTimeout); err != nil {
+	if err := k8s.WaitPVCBound(ctx, client, cfg.Cluster.Namespace, restoredPVCName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 		log.Printf("[%s] FAIL: SNAPSHOT: restored PVC not Bound: %v", pod.Name, err)
 		return
 	}
 
 	err = k8s.CreatePod(ctx, client, k8s.PodSpec{
 		Name:       restoredPodName,
-		Namespace:  cfg.Namespace,
-		Image:      cfg.FIOImage,
+		Namespace:  cfg.Cluster.Namespace,
+		Image:      cfg.Tools.FIO.Image,
 		PVCName:    restoredPVCName,
 		VolumeMode: pod.VolumeMode,
-		Labels:     map[string]string{"app": cfg.Prefix, "role": "restored"},
+		Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "restored"},
 		Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
 	})
 	if err != nil {
@@ -212,7 +212,7 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 		return
 	}
 
-	if err := k8s.WaitPodReady(ctx, client, cfg.Namespace, restoredPodName, cfg.WaitTimeout); err != nil {
+	if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, restoredPodName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 		log.Printf("[%s] FAIL: SNAPSHOT: restored pod not Ready: %v", pod.Name, err)
 		return
 	}
@@ -227,21 +227,21 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 }
 
 func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
-	expandedSize, err := computeExpandedSize(cfg.PVCSize, cfg.ExpandFactor)
+	expandedSize, err := computeExpandedSize(cfg.Cluster.PVCSize, cfg.Cluster.ExpandFactor)
 	if err != nil {
 		log.Printf("[%s] FAIL: EXPAND: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-parse", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
 	}
-	log.Printf("[%s] EXPAND: Patching %s from %s to %s", pod.Name, pod.PVCName, cfg.PVCSize, expandedSize)
+	log.Printf("[%s] EXPAND: Patching %s from %s to %s", pod.Name, pod.PVCName, cfg.Cluster.PVCSize, expandedSize)
 
-	if err := k8s.PatchPVCSize(ctx, client, cfg.Namespace, pod.PVCName, expandedSize); err != nil {
+	if err := k8s.PatchPVCSize(ctx, client, cfg.Cluster.Namespace, pod.PVCName, expandedSize); err != nil {
 		log.Printf("[%s] FAIL: EXPAND: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-patch", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
 	}
 
-	deadline := time.After(cfg.WaitTimeout)
+	deadline := time.After(cfg.Cluster.WaitTimeout.Duration())
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -254,7 +254,7 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 			collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-wait", Category: "lifecycle", Status: "fail", Error: "timeout", Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 			return
 		case <-ticker.C:
-			capStr, err := k8s.GetPVCCapacity(ctx, client, cfg.Namespace, pod.PVCName)
+			capStr, err := k8s.GetPVCCapacity(ctx, client, cfg.Cluster.Namespace, pod.PVCName)
 			if err != nil {
 				continue
 			}
@@ -262,7 +262,7 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 			wanted, _ := resource.ParseQuantity(expandedSize)
 			if actual.Cmp(wanted) >= 0 {
 				log.Printf("[%s] EXPAND: capacity reached %s", pod.Name, expandedSize)
-				halfRuntime := cfg.FIORuntime / 2
+				halfRuntime := cfg.Tools.FIO.Runtime / 2
 				expandJob := fio.Job{
 					Name:     "expand-verify",
 					Category: "lifecycle",
@@ -284,7 +284,7 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 
 func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
 	log.Printf("[%s] RESCHEDULE: Deleting pod", pod.Name)
-	if err := k8s.DeletePod(ctx, client, cfg.Namespace, pod.Name); err != nil {
+	if err := k8s.DeletePod(ctx, client, cfg.Cluster.Namespace, pod.Name); err != nil {
 		log.Printf("[%s] FAIL: RESCHEDULE: delete: %v", pod.Name, err)
 		return
 	}
@@ -293,11 +293,11 @@ func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Clien
 	err := k8s.Retry(func() error {
 		return k8s.CreatePod(ctx, client, k8s.PodSpec{
 			Name:       pod.Name,
-			Namespace:  cfg.Namespace,
-			Image:      cfg.FIOImage,
+			Namespace:  cfg.Cluster.Namespace,
+			Image:      cfg.Tools.FIO.Image,
 			PVCName:    pod.PVCName,
 			VolumeMode: pod.VolumeMode,
-			Labels:     map[string]string{"app": cfg.Prefix, "role": "reschedule"},
+			Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "reschedule"},
 			Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
 		})
 	})
@@ -306,19 +306,19 @@ func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Clien
 		return
 	}
 
-	if err := k8s.WaitPodReady(ctx, client, cfg.Namespace, pod.Name, cfg.WaitTimeout); err != nil {
+	if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, pod.Name, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 		log.Printf("[%s] FAIL: RESCHEDULE: pod not Ready: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "reschedule-ready", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
 	}
 
-	halfRuntime := cfg.FIORuntime / 2
+	halfRuntime := cfg.Tools.FIO.Runtime / 2
 	readJob := fio.Job{
 		Name:     "reschedule-verify",
 		Category: "lifecycle",
 		Args: []string{
 			"--rw=randread", "--bs=4k",
-			fmt.Sprintf("--size=%s", cfg.FIOSize),
+			fmt.Sprintf("--size=%s", cfg.Tools.FIO.Size),
 			"--ioengine=libaio", "--direct=1", "--iodepth=16",
 			"--time_based=1", fmt.Sprintf("--runtime=%d", halfRuntime),
 			"--group_reporting=1",
@@ -331,7 +331,7 @@ func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Clien
 		Category: "lifecycle",
 		Args: []string{
 			"--rw=randrw", "--rwmixread=50", "--bs=4k",
-			fmt.Sprintf("--size=%s", cfg.FIOSize),
+			fmt.Sprintf("--size=%s", cfg.Tools.FIO.Size),
 			"--ioengine=libaio", "--direct=1", "--iodepth=16",
 			"--time_based=1", fmt.Sprintf("--runtime=%d", halfRuntime),
 			"--verify=crc32c", "--verify_backlog=128",
@@ -343,9 +343,9 @@ func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Clien
 
 func storageClassForPod(cfg *config.Config, pod PodInfo) string {
 	if pod.StorageType == "cephfs" {
-		return cfg.CephFSStorageClass
+		return cfg.Cluster.CephFS.StorageClass
 	}
-	return cfg.RBDStorageClass
+	return cfg.Cluster.RBD.StorageClass
 }
 
 func accessModesForPod(pod PodInfo) []corev1.PersistentVolumeAccessMode {

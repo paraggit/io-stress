@@ -16,13 +16,13 @@ func startSustainWorkload(ctx context.Context, client *k8s.Client, cfg *config.C
 		"--name=sustain",
 		fmt.Sprintf("--filename=%s", pod.Target),
 		"--rw=randrw", "--rwmixread=70", "--bs=4k",
-		fmt.Sprintf("--size=%s", cfg.FIOSize),
+		fmt.Sprintf("--size=%s", cfg.Tools.FIO.Size),
 		"--ioengine=libaio", "--direct=1", "--iodepth=8",
 		"--time_based=1",
-		fmt.Sprintf("--runtime=%d", cfg.SustainRuntime),
+		fmt.Sprintf("--runtime=%d", cfg.Cluster.SustainRuntime),
 		"--group_reporting=1",
 	}
-	_, _, _, err := k8s.ExecInPod(ctx, client, cfg.Namespace, pod.Name, "fio", cmd)
+	_, _, _, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, "fio", cmd)
 	if err != nil && ctx.Err() == nil {
 		log.Printf("[%s] Sustain workload error: %v", pod.Name, err)
 	}

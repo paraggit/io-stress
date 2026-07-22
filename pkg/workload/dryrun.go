@@ -8,25 +8,25 @@ import (
 )
 
 func DryRun(cfg *config.Config) error {
-	log.Printf("DRY_RUN — emitting manifests for %d RBD + %d CephFS PVCs", cfg.NumPVC, cfg.NumPVC)
+	log.Printf("DRY_RUN — emitting manifests for %d RBD + %d CephFS PVCs", cfg.Cluster.RBD.NumPVC, cfg.Cluster.CephFS.NumPVC)
 
-	for i := 1; i <= cfg.NumPVC; i++ {
+	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
 		volumeMode := "Filesystem"
 		accessMode := "ReadWriteOnce"
 		if i%2 == 0 {
 			volumeMode = "Block"
 		}
-		pvcName := fmt.Sprintf("%s-rbd-pvc-%d", cfg.Prefix, i)
-		podName := fmt.Sprintf("%s-rbd-pod-%d", cfg.Prefix, i)
-		emitPVCYAML(pvcName, cfg.Namespace, cfg.RBDStorageClass, cfg.PVCSize, volumeMode, accessMode, cfg.Prefix)
-		emitPodYAML(podName, pvcName, cfg.Namespace, cfg.FIOImage, volumeMode, cfg.Prefix)
+		pvcName := fmt.Sprintf("%s-rbd-pvc-%d", cfg.Cluster.Prefix, i)
+		podName := fmt.Sprintf("%s-rbd-pod-%d", cfg.Cluster.Prefix, i)
+		emitPVCYAML(pvcName, cfg.Cluster.Namespace, cfg.Cluster.RBD.StorageClass, cfg.Cluster.PVCSize, volumeMode, accessMode, cfg.Cluster.Prefix)
+		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, cfg.Tools.FIO.Image, volumeMode, cfg.Cluster.Prefix)
 	}
 
-	for i := 1; i <= cfg.NumPVC; i++ {
-		pvcName := fmt.Sprintf("%s-cephfs-pvc-%d", cfg.Prefix, i)
-		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Prefix, i)
-		emitPVCYAML(pvcName, cfg.Namespace, cfg.CephFSStorageClass, cfg.PVCSize, "Filesystem", "ReadWriteMany", cfg.Prefix)
-		emitPodYAML(podName, pvcName, cfg.Namespace, cfg.FIOImage, "Filesystem", cfg.Prefix)
+	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
+		pvcName := fmt.Sprintf("%s-cephfs-pvc-%d", cfg.Cluster.Prefix, i)
+		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i)
+		emitPVCYAML(pvcName, cfg.Cluster.Namespace, cfg.Cluster.CephFS.StorageClass, cfg.Cluster.PVCSize, "Filesystem", "ReadWriteMany", cfg.Cluster.Prefix)
+		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, cfg.Tools.FIO.Image, "Filesystem", cfg.Cluster.Prefix)
 	}
 
 	return nil

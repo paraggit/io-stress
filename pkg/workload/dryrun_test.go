@@ -12,7 +12,8 @@ import (
 
 func TestDryRun(t *testing.T) {
 	cfg := config.NewDefault()
-	cfg.NumPVC = 2
+	cfg.Cluster.RBD.NumPVC = 2
+	cfg.Cluster.CephFS.NumPVC = 2
 
 	var buf bytes.Buffer
 	log.SetOutput(&buf)

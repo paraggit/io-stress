@@ -19,7 +19,7 @@ func runPhase3(ctx context.Context, cfg *config.Config, client *k8s.Client, read
 
 	var verifyPods []PodInfo
 	for _, pod := range readyPods {
-		if pod.Index%cfg.LifecycleInterval == 0 {
+		if pod.Index%cfg.Cluster.LifecycleInterval == 0 {
 			verifyPods = append(verifyPods, pod)
 		}
 	}
@@ -45,16 +45,16 @@ func runPhase3(ctx context.Context, cfg *config.Config, client *k8s.Client, read
 }
 
 func verifyCloneAndRestored(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
-	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Prefix, pod.StorageType, pod.Index)
-	restoredPodName := fmt.Sprintf("%s-%s-restored-pod-%d", cfg.Prefix, pod.StorageType, pod.Index)
+	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
+	restoredPodName := fmt.Sprintf("%s-%s-restored-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 
-	halfRuntime := cfg.FIORuntime / 2
+	halfRuntime := cfg.Tools.FIO.Runtime / 2
 	verifyJob := fio.Job{
 		Name:     "phase3-verify",
 		Category: "lifecycle",
 		Args: []string{
 			"--rw=randread", "--bs=4k",
-			fmt.Sprintf("--size=%s", cfg.FIOSize),
+			fmt.Sprintf("--size=%s", cfg.Tools.FIO.Size),
 			"--ioengine=libaio", "--direct=1", "--iodepth=16",
 			"--time_based=1", fmt.Sprintf("--runtime=%d", halfRuntime),
 			"--verify=crc32c", "--verify_only=1",
@@ -63,7 +63,7 @@ func verifyCloneAndRestored(ctx context.Context, cfg *config.Config, client *k8s
 	}
 
 	for _, targetPod := range []string{clonePodName, restoredPodName} {
-		if err := k8s.WaitPodReady(ctx, client, cfg.Namespace, targetPod, 10*time.Second); err != nil {
+		if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, targetPod, 10*time.Second); err != nil {
 			log.Printf("SKIP: VERIFY: %s does not exist", targetPod)
 			collector.Add(report.JobResult{
 				Pod:        targetPod,

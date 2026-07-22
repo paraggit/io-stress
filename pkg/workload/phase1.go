@@ -18,8 +18,8 @@ func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods
 	log.Println("=== PHASE 1: FIO STRESS ===")
 
 	g, gCtx := errgroup.WithContext(ctx)
-	if cfg.MaxParallelPods > 0 {
-		g.SetLimit(cfg.MaxParallelPods)
+	if cfg.Cluster.MaxParallelPods > 0 {
+		g.SetLimit(cfg.Cluster.MaxParallelPods)
 	}
 
 	for _, pod := range pods {
@@ -61,7 +61,7 @@ func runFIOOnPod(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 		default:
 		}
 		result := executeFIOJob(ctx, client, pod, job, cfg, collector)
-		if err := report.WriteJobFile(cfg.ResultsDir, result); err != nil {
+		if err := report.WriteJobFile(cfg.Cluster.ResultsDir, result); err != nil {
 			log.Printf("warning: failed to write job file: %v", err)
 		}
 	}
@@ -72,10 +72,10 @@ func executeFIOJob(ctx context.Context, client *k8s.Client, pod PodInfo, job fio
 	log.Printf("[%s] Running %s", pod.Name, job.Name)
 	start := time.Now()
 
-	args := fio.BuildArgs(job, pod.Target, cfg.OutputFormat)
+	args := fio.BuildArgs(job, pod.Target, cfg.Tools.FIO.OutputFormat)
 	cmd := append([]string{"fio"}, args...)
 
-	stdout, stderr, exitCode, err := k8s.ExecInPod(ctx, client, cfg.Namespace, pod.Name, "fio", cmd)
+	stdout, stderr, exitCode, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, "fio", cmd)
 	duration := time.Since(start)
 
 	result := report.JobResult{
@@ -125,20 +125,20 @@ func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Clie
 			secondPodName := pod.Name + "-rwx"
 			secondPod := k8s.PodSpec{
 				Name:       secondPodName,
-				Namespace:  cfg.Namespace,
-				Image:      cfg.FIOImage,
+				Namespace:  cfg.Cluster.Namespace,
+				Image:      cfg.Tools.FIO.Image,
 				PVCName:    pod.PVCName,
 				VolumeMode: pod.VolumeMode,
-				Labels:     map[string]string{"app": cfg.Prefix, "role": "rwx"},
+				Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "rwx"},
 			}
 			if err := k8s.CreatePod(ctx, client, secondPod); err != nil {
 				return fmt.Errorf("create RWX pod %s: %w", secondPodName, err)
 			}
 			defer func() {
-				k8s.DeletePod(context.Background(), client, cfg.Namespace, secondPodName)
+				k8s.DeletePod(context.Background(), client, cfg.Cluster.Namespace, secondPodName)
 			}()
 
-			if err := k8s.WaitPodReady(ctx, client, cfg.Namespace, secondPodName, cfg.WaitTimeout); err != nil {
+			if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, secondPodName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 				return fmt.Errorf("wait RWX pod %s: %w", secondPodName, err)
 			}
 

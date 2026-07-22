@@ -18,10 +18,10 @@ import (
 )
 
 func Run(ctx context.Context, cfg *config.Config) error {
-	if cfg.ResultsDir == "" {
-		cfg.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
+	if cfg.Cluster.ResultsDir == "" {
+		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
-	if err := os.MkdirAll(cfg.ResultsDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.Cluster.ResultsDir, 0755); err != nil {
 		return fmt.Errorf("create results dir: %w", err)
 	}
 
@@ -30,12 +30,12 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("create k8s client: %w", err)
 	}
 
-	if !cfg.NoCleanup {
+	if !cfg.Cluster.NoCleanup {
 		defer cleanup(context.Background(), client, cfg)
 	}
 
-	log.Printf("Ensuring namespace %s", cfg.Namespace)
-	if err := k8s.EnsureNamespace(ctx, client, cfg.Namespace); err != nil {
+	log.Printf("Ensuring namespace %s", cfg.Cluster.Namespace)
+	if err := k8s.EnsureNamespace(ctx, client, cfg.Cluster.Namespace); err != nil {
 		return err
 	}
 
@@ -52,7 +52,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	collector := report.NewCollector()
 	startTime := time.Now()
 
-	if !cfg.SkipFIOStress {
+	if !cfg.Cluster.SkipFIOStress {
 		if err := runPhase1(ctx, cfg, client, readyPods, collector); err != nil {
 			return err
 		}
@@ -60,7 +60,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		log.Println("Phase 1 skipped (--skip-fio-stress)")
 	}
 
-	if !cfg.SkipLifecycle {
+	if !cfg.Cluster.SkipLifecycle {
 		if err := runPhase2(ctx, cfg, client, readyPods, collector); err != nil {
 			log.Printf("Phase 2 completed with errors: %v", err)
 		}
@@ -77,12 +77,12 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		Results:   results,
 		Summary:   summary,
 	}
-	if err := report.WriteJSON(cfg.ResultsDir, rpt); err != nil {
+	if err := report.WriteJSON(cfg.Cluster.ResultsDir, rpt); err != nil {
 		log.Printf("warning: failed to write report: %v", err)
 	}
 
 	report.PrintSummary(results)
-	log.Printf("Results in %s", cfg.ResultsDir)
+	log.Printf("Results in %s", cfg.Cluster.ResultsDir)
 
 	if summary.Failed > 0 {
 		return fmt.Errorf("%d job(s) failed", summary.Failed)
@@ -93,8 +93,8 @@ func Run(ctx context.Context, cfg *config.Config) error {
 func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client) ([]PodInfo, error) {
 	var allPods []PodInfo
 
-	totalRBD := cfg.NumPVC
-	totalCephFS := cfg.NumPVC
+	totalRBD := cfg.Cluster.RBD.NumPVC
+	totalCephFS := cfg.Cluster.CephFS.NumPVC
 	log.Printf("Creating %d PVCs (%d RBD + %d CephFS)", totalRBD+totalCephFS, totalRBD, totalCephFS)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -108,8 +108,8 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 			volumeMode = corev1.PersistentVolumeBlock
 		}
 
-		pvcName := fmt.Sprintf("%s-rbd-pvc-%d", cfg.Prefix, i)
-		podName := fmt.Sprintf("%s-rbd-pod-%d", cfg.Prefix, i)
+		pvcName := fmt.Sprintf("%s-rbd-pvc-%d", cfg.Cluster.Prefix, i)
+		podName := fmt.Sprintf("%s-rbd-pod-%d", cfg.Cluster.Prefix, i)
 		target := "/mnt/data/fio.dat"
 		if volumeMode == corev1.PersistentVolumeBlock {
 			target = "/dev/rbdblock"
@@ -128,12 +128,12 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 			return k8s.Retry(func() error {
 				return k8s.CreatePVC(gCtx, client, k8s.PVCSpec{
 					Name:         pvcName,
-					Namespace:    cfg.Namespace,
-					StorageClass: cfg.RBDStorageClass,
-					Size:         cfg.PVCSize,
+					Namespace:    cfg.Cluster.Namespace,
+					StorageClass: cfg.Cluster.RBD.StorageClass,
+					Size:         cfg.Cluster.PVCSize,
 					VolumeMode:   volumeMode,
 					AccessModes:  []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-					Labels:       map[string]string{"app": cfg.Prefix, "index": strconv.Itoa(i), "backend": "rbd"},
+					Labels:       map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(i), "backend": "rbd"},
 				})
 			})
 		})
@@ -141,8 +141,8 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 
 	for i := 1; i <= totalCephFS; i++ {
 		i := i
-		pvcName := fmt.Sprintf("%s-cephfs-pvc-%d", cfg.Prefix, i)
-		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Prefix, i)
+		pvcName := fmt.Sprintf("%s-cephfs-pvc-%d", cfg.Cluster.Prefix, i)
+		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i)
 
 		allPods = append(allPods, PodInfo{
 			Index:       i,
@@ -157,12 +157,12 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 			return k8s.Retry(func() error {
 				return k8s.CreatePVC(gCtx, client, k8s.PVCSpec{
 					Name:         pvcName,
-					Namespace:    cfg.Namespace,
-					StorageClass: cfg.CephFSStorageClass,
-					Size:         cfg.PVCSize,
+					Namespace:    cfg.Cluster.Namespace,
+					StorageClass: cfg.Cluster.CephFS.StorageClass,
+					Size:         cfg.Cluster.PVCSize,
 					VolumeMode:   corev1.PersistentVolumeFilesystem,
 					AccessModes:  []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
-					Labels:       map[string]string{"app": cfg.Prefix, "index": strconv.Itoa(i), "backend": "cephfs"},
+					Labels:       map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(i), "backend": "cephfs"},
 				})
 			})
 		})
@@ -177,7 +177,7 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 	for _, pod := range allPods {
 		pod := pod
 		gBound.Go(func() error {
-			return k8s.WaitPVCBound(boundCtx, client, cfg.Namespace, pod.PVCName, cfg.WaitTimeout)
+			return k8s.WaitPVCBound(boundCtx, client, cfg.Cluster.Namespace, pod.PVCName, cfg.Cluster.WaitTimeout.Duration())
 		})
 	}
 	if err := gBound.Wait(); err != nil {
@@ -193,11 +193,11 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 			return k8s.Retry(func() error {
 				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
 					Name:       pod.Name,
-					Namespace:  cfg.Namespace,
-					Image:      cfg.FIOImage,
+					Namespace:  cfg.Cluster.Namespace,
+					Image:      cfg.Tools.FIO.Image,
 					PVCName:    pod.PVCName,
 					VolumeMode: pod.VolumeMode,
-					Labels:     map[string]string{"app": cfg.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
+					Labels:     map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
 					Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
 				})
 			})
@@ -214,7 +214,7 @@ func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, al
 	log.Printf("Waiting for pods to be Ready")
 	var readyPods []PodInfo
 	for _, pod := range allPods {
-		if err := k8s.WaitPodReady(ctx, client, cfg.Namespace, pod.Name, cfg.WaitTimeout); err != nil {
+		if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, pod.Name, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 			log.Printf("WARNING: pod %s did not become Ready - skipping", pod.Name)
 			continue
 		}
@@ -228,34 +228,59 @@ func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, al
 }
 
 func cleanup(ctx context.Context, client *k8s.Client, cfg *config.Config) {
-	log.Printf("Cleaning up resources in namespace %s", cfg.Namespace)
-	for i := 1; i <= cfg.NumPVC; i++ {
+	log.Printf("Cleaning up resources in namespace %s", cfg.Cluster.Namespace)
+	
+	// Clean up RBD resources
+	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
 		for _, name := range []string{
-			fmt.Sprintf("%s-rbd-pod-%d", cfg.Prefix, i),
-			fmt.Sprintf("%s-rbd-clone-pod-%d", cfg.Prefix, i),
-			fmt.Sprintf("%s-rbd-restored-pod-%d", cfg.Prefix, i),
-			fmt.Sprintf("%s-cephfs-pod-%d", cfg.Prefix, i),
-			fmt.Sprintf("%s-cephfs-pod-%d-rwx", cfg.Prefix, i),
-			fmt.Sprintf("%s-cephfs-clone-pod-%d", cfg.Prefix, i),
-			fmt.Sprintf("%s-cephfs-restored-pod-%d", cfg.Prefix, i),
+			fmt.Sprintf("%s-rbd-pod-%d", cfg.Cluster.Prefix, i),
+			fmt.Sprintf("%s-rbd-clone-pod-%d", cfg.Cluster.Prefix, i),
+			fmt.Sprintf("%s-rbd-restored-pod-%d", cfg.Cluster.Prefix, i),
 		} {
-			k8s.DeletePod(ctx, client, cfg.Namespace, name)
+			k8s.DeletePod(ctx, client, cfg.Cluster.Namespace, name)
 		}
 	}
-	for i := 1; i <= cfg.NumPVC; i++ {
+	
+	// Clean up CephFS resources
+	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
+		for _, name := range []string{
+			fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i),
+			fmt.Sprintf("%s-cephfs-pod-%d-rwx", cfg.Cluster.Prefix, i),
+			fmt.Sprintf("%s-cephfs-clone-pod-%d", cfg.Cluster.Prefix, i),
+			fmt.Sprintf("%s-cephfs-restored-pod-%d", cfg.Cluster.Prefix, i),
+		} {
+			k8s.DeletePod(ctx, client, cfg.Cluster.Namespace, name)
+		}
+	}
+	
+	// Clean up RBD PVCs
+	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
 		for _, suffix := range []string{"pvc", "clone-pvc", "restored-pvc"} {
-			for _, backend := range []string{"rbd", "cephfs"} {
-				name := fmt.Sprintf("%s-%s-%s-%d", cfg.Prefix, backend, suffix, i)
-				k8s.DeletePVC(ctx, client, cfg.Namespace, name)
-			}
+			name := fmt.Sprintf("%s-rbd-%s-%d", cfg.Cluster.Prefix, suffix, i)
+			k8s.DeletePVC(ctx, client, cfg.Cluster.Namespace, name)
 		}
 	}
-	for i := 1; i <= cfg.NumPVC; i++ {
-		for _, backend := range []string{"rbd", "cephfs"} {
-			snapName := fmt.Sprintf("%s-%s-snap-%d", cfg.Prefix, backend, i)
-			k8s.DeleteSnapshot(ctx, client, cfg.Namespace, snapName)
+	
+	// Clean up CephFS PVCs
+	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
+		for _, suffix := range []string{"pvc", "clone-pvc", "restored-pvc"} {
+			name := fmt.Sprintf("%s-cephfs-%s-%d", cfg.Cluster.Prefix, suffix, i)
+			k8s.DeletePVC(ctx, client, cfg.Cluster.Namespace, name)
 		}
 	}
-	k8s.DeleteNamespace(ctx, client, cfg.Namespace)
+	
+	// Clean up RBD snapshots
+	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
+		snapName := fmt.Sprintf("%s-rbd-snap-%d", cfg.Cluster.Prefix, i)
+		k8s.DeleteSnapshot(ctx, client, cfg.Cluster.Namespace, snapName)
+	}
+	
+	// Clean up CephFS snapshots
+	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
+		snapName := fmt.Sprintf("%s-cephfs-snap-%d", cfg.Cluster.Prefix, i)
+		k8s.DeleteSnapshot(ctx, client, cfg.Cluster.Namespace, snapName)
+	}
+	
+	k8s.DeleteNamespace(ctx, client, cfg.Cluster.Namespace)
 	log.Printf("Cleanup complete")
 }
