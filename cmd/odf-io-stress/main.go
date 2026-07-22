@@ -14,6 +14,8 @@ import (
 
 func main() {
 	rootCmd := &cobra.Command{Use: "odf-io-stress", Short: "ODF IO stress testing tool for RBD and CephFS"}
+	// Don't dump the flags list on runtime failures (e.g. "N job(s) failed").
+	rootCmd.SilenceUsage = true
 
 	var (
 		configPath string
@@ -22,8 +24,9 @@ func main() {
 	)
 
 	runCmd := &cobra.Command{
-		Use:   "run",
-		Short: "Run the FIO stress test suite",
+		Use:          "run",
+		Short:        "Run the FIO stress test suite",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.NewDefault()
 			if configPath != "" {
@@ -88,8 +91,9 @@ func main() {
 	f.Bool("sequential", !def.Tools.FIO.Parallel, "Run FIO workloads sequentially")
 
 	genCmd := &cobra.Command{
-		Use:   "generate-config",
-		Short: "Write a sample YAML config file",
+		Use:          "generate-config",
+		Short:        "Write a sample YAML config file",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return config.WriteSample(genOut, genForce)
 		},
