@@ -2,10 +2,10 @@ package k8s
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -98,9 +98,6 @@ func DetectSnapshotClass(ctx context.Context, c *Client, csiDriver string) (stri
 		return "", fmt.Errorf("list snapshot classes: %w", err)
 	}
 	for _, item := range list.Items {
-		data, _ := json.Marshal(item.Object)
-		var sc map[string]interface{}
-		json.Unmarshal(data, &sc)
 		driver, _, _ := unstructured.NestedString(item.Object, "driver")
 		if driver == csiDriver {
 			return item.GetName(), nil
@@ -115,7 +112,7 @@ func DeleteSnapshot(ctx context.Context, c *Client, namespace, name string) erro
 		return err
 	}
 	err = dc.Resource(snapshotGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete snapshot %s: %w", name, err)
 	}
 	return nil

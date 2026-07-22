@@ -9,6 +9,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
@@ -20,8 +21,14 @@ import (
 func runPhase2(ctx context.Context, cfg *config.Config, client *k8s.Client, readyPods []PodInfo, collector *report.Collector) error {
 	log.Println("═══ PHASE 2: LIFECYCLE STORM ═══")
 
-	rbdSnapClass, _ := k8s.DetectSnapshotClass(ctx, client, "rbd.csi.ceph.com")
-	cephfsSnapClass, _ := k8s.DetectSnapshotClass(ctx, client, "cephfs.csi.ceph.com")
+	rbdSnapClass := cfg.SnapshotClass
+	cephfsSnapClass := cfg.SnapshotClass
+	if rbdSnapClass == "" {
+		rbdSnapClass, _ = k8s.DetectSnapshotClass(ctx, client, "rbd.csi.ceph.com")
+	}
+	if cephfsSnapClass == "" {
+		cephfsSnapClass, _ = k8s.DetectSnapshotClass(ctx, client, "cephfs.csi.ceph.com")
+	}
 
 	if rbdSnapClass == "" {
 		log.Println("WARNING: No RBD VolumeSnapshotClass found — RBD snapshot operations will be skipped")
@@ -220,7 +227,12 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 }
 
 func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
-	expandedSize := computeExpandedSize(cfg.PVCSize, cfg.ExpandFactor)
+	expandedSize, err := computeExpandedSize(cfg.PVCSize, cfg.ExpandFactor)
+	if err != nil {
+		log.Printf("[%s] FAIL: EXPAND: %v", pod.Name, err)
+		collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-parse", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
+		return
+	}
 	log.Printf("[%s] EXPAND: Patching %s from %s to %s", pod.Name, pod.PVCName, cfg.PVCSize, expandedSize)
 
 	if err := k8s.PatchPVCSize(ctx, client, cfg.Namespace, pod.PVCName, expandedSize); err != nil {
@@ -242,8 +254,13 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 			collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-wait", Category: "lifecycle", Status: "fail", Error: "timeout", Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 			return
 		case <-ticker.C:
-			cap, err := k8s.GetPVCCapacity(ctx, client, cfg.Namespace, pod.PVCName)
-			if err == nil && cap == expandedSize {
+			capStr, err := k8s.GetPVCCapacity(ctx, client, cfg.Namespace, pod.PVCName)
+			if err != nil {
+				continue
+			}
+			actual, _ := resource.ParseQuantity(capStr)
+			wanted, _ := resource.ParseQuantity(expandedSize)
+			if actual.Cmp(wanted) >= 0 {
 				log.Printf("[%s] EXPAND: capacity reached %s", pod.Name, expandedSize)
 				halfRuntime := cfg.FIORuntime / 2
 				expandJob := fio.Job{
@@ -338,9 +355,12 @@ func accessModesForPod(pod PodInfo) []corev1.PersistentVolumeAccessMode {
 	return []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
 }
 
-func computeExpandedSize(original string, factor int) string {
+func computeExpandedSize(original string, factor int) (string, error) {
 	numStr := strings.TrimRight(original, "GiMiTiKi")
 	unit := original[len(numStr):]
-	num, _ := strconv.Atoi(numStr)
-	return fmt.Sprintf("%d%s", num*factor, unit)
+	num, err := strconv.Atoi(numStr)
+	if err != nil {
+		return "", fmt.Errorf("parse PVC size %q: %w", original, err)
+	}
+	return fmt.Sprintf("%d%s", num*factor, unit), nil
 }

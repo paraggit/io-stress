@@ -97,7 +97,7 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 	totalCephFS := cfg.NumPVC
 	log.Printf("Creating %d PVCs (%d RBD + %d CephFS)", totalRBD+totalCephFS, totalRBD, totalCephFS)
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, gCtx := errgroup.WithContext(ctx)
 
 	for i := 1; i <= totalRBD; i++ {
 		i := i
@@ -126,7 +126,7 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 
 		g.Go(func() error {
 			return k8s.Retry(func() error {
-				return k8s.CreatePVC(ctx, client, k8s.PVCSpec{
+				return k8s.CreatePVC(gCtx, client, k8s.PVCSpec{
 					Name:         pvcName,
 					Namespace:    cfg.Namespace,
 					StorageClass: cfg.RBDStorageClass,
@@ -155,7 +155,7 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 
 		g.Go(func() error {
 			return k8s.Retry(func() error {
-				return k8s.CreatePVC(ctx, client, k8s.PVCSpec{
+				return k8s.CreatePVC(gCtx, client, k8s.PVCSpec{
 					Name:         pvcName,
 					Namespace:    cfg.Namespace,
 					StorageClass: cfg.CephFSStorageClass,
@@ -173,11 +173,11 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 	}
 
 	log.Printf("Waiting for PVCs to be Bound")
-	gBound, ctx := errgroup.WithContext(ctx)
+	gBound, boundCtx := errgroup.WithContext(ctx)
 	for _, pod := range allPods {
 		pod := pod
 		gBound.Go(func() error {
-			return k8s.WaitPVCBound(ctx, client, cfg.Namespace, pod.PVCName, cfg.WaitTimeout)
+			return k8s.WaitPVCBound(boundCtx, client, cfg.Namespace, pod.PVCName, cfg.WaitTimeout)
 		})
 	}
 	if err := gBound.Wait(); err != nil {
@@ -186,12 +186,12 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 	log.Printf("PVCs Bound: %d/%d", len(allPods), len(allPods))
 
 	log.Printf("Creating %d pods", len(allPods))
-	gPod, ctx := errgroup.WithContext(ctx)
+	gPod, podCtx := errgroup.WithContext(ctx)
 	for _, pod := range allPods {
 		pod := pod
 		gPod.Go(func() error {
 			return k8s.Retry(func() error {
-				return k8s.CreatePod(ctx, client, k8s.PodSpec{
+				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
 					Name:       pod.Name,
 					Namespace:  cfg.Namespace,
 					Image:      cfg.FIOImage,

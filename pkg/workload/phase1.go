@@ -17,7 +17,7 @@ import (
 func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods []PodInfo, collector *report.Collector) error {
 	log.Println("=== PHASE 1: FIO STRESS ===")
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, gCtx := errgroup.WithContext(ctx)
 	if cfg.MaxParallelPods > 0 {
 		g.SetLimit(cfg.MaxParallelPods)
 	}
@@ -25,7 +25,7 @@ func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods
 	for _, pod := range pods {
 		pod := pod
 		g.Go(func() error {
-			return runFIOOnPod(ctx, cfg, client, pod, collector)
+			return runFIOOnPod(gCtx, cfg, client, pod, collector)
 		})
 	}
 

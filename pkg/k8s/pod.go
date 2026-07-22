@@ -56,12 +56,15 @@ func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
 			{Name: "data", MountPath: "/mnt/data"},
 		}
 	} else {
+		pod.Spec.Containers[0].VolumeDevices = []corev1.VolumeDevice{
+			{Name: "data", DevicePath: "/dev/rbdblock"},
+		}
+	}
+
+	if spec.Privileged {
 		priv := true
 		pod.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
 			Privileged: &priv,
-		}
-		pod.Spec.Containers[0].VolumeDevices = []corev1.VolumeDevice{
-			{Name: "data", DevicePath: "/dev/rbdblock"},
 		}
 	}
 
