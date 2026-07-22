@@ -108,3 +108,16 @@ func GetPVCCapacity(ctx context.Context, c *Client, namespace, name string) (str
 	q := pvc.Status.Capacity[corev1.ResourceStorage]
 	return q.String(), nil
 }
+
+// GetPVCRequestedSize returns the PVC's current storage request (updates immediately on expand patch).
+func GetPVCRequestedSize(ctx context.Context, c *Client, namespace, name string) (string, error) {
+	pvc, err := c.Clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("get PVC %s: %w", name, err)
+	}
+	q, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
+	if !ok {
+		return "", fmt.Errorf("PVC %s has no storage request", name)
+	}
+	return q.String(), nil
+}

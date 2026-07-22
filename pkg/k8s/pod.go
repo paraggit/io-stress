@@ -109,10 +109,14 @@ func DeletePod(ctx context.Context, c *Client, namespace, name string) error {
 	err := c.Clientset.CoreV1().Pods(namespace).Delete(ctx, name, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriod,
 	})
-	if err != nil && !apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("delete pod %s: %w", name, err)
 	}
 
+	// Only wait for deletion when the pod actually existed.
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 

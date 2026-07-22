@@ -95,12 +95,19 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 	clonePVCName := fmt.Sprintf("%s-%s-clone-pvc-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 
-	log.Printf("[%s] CLONE: Creating clone PVC %s", pod.Name, clonePVCName)
-	err := k8s.CreatePVC(ctx, client, k8s.PVCSpec{
+	cloneSize, err := sizeForCloneOrRestore(ctx, client, cfg, pod.PVCName)
+	if err != nil {
+		log.Printf("[%s] FAIL: CLONE: size: %v", pod.Name, err)
+		collector.Add(report.JobResult{Pod: clonePodName, Job: "clone-create", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
+		return
+	}
+
+	log.Printf("[%s] CLONE: Creating clone PVC %s (size %s)", pod.Name, clonePVCName, cloneSize)
+	err = k8s.CreatePVC(ctx, client, k8s.PVCSpec{
 		Name:         clonePVCName,
 		Namespace:    cfg.Cluster.Namespace,
 		StorageClass: storageClassForPod(cfg, pod),
-		Size:         cfg.Cluster.PVCSize,
+		Size:         cloneSize,
 		VolumeMode:   pod.VolumeMode,
 		AccessModes:  accessModesForPod(pod),
 		Labels:       map[string]string{"app": cfg.Cluster.Prefix, "role": "clone"},
@@ -173,12 +180,18 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 		return
 	}
 
+	restoreSize, err := sizeForCloneOrRestore(ctx, client, cfg, pod.PVCName)
+	if err != nil {
+		log.Printf("[%s] FAIL: SNAPSHOT: restored PVC size: %v", pod.Name, err)
+		return
+	}
+
 	apiGroup := "snapshot.storage.k8s.io"
-	err := k8s.CreatePVC(ctx, client, k8s.PVCSpec{
+	err = k8s.CreatePVC(ctx, client, k8s.PVCSpec{
 		Name:         restoredPVCName,
 		Namespace:    cfg.Cluster.Namespace,
 		StorageClass: storageClassForPod(cfg, pod),
-		Size:         cfg.Cluster.PVCSize,
+		Size:         restoreSize,
 		VolumeMode:   pod.VolumeMode,
 		AccessModes:  accessModesForPod(pod),
 		Labels:       map[string]string{"app": cfg.Cluster.Prefix, "role": "restored"},
@@ -363,4 +376,36 @@ func computeExpandedSize(original string, factor int) (string, error) {
 		return "", fmt.Errorf("parse PVC size %q: %w", original, err)
 	}
 	return fmt.Sprintf("%d%s", num*factor, unit), nil
+}
+
+// sizeForCloneOrRestore picks a size >= the source PVC. Clone/restore run
+// concurrently with expand, so we take the max of configured size, the
+// expand target, and the source PVC's current request/capacity.
+func sizeForCloneOrRestore(ctx context.Context, client *k8s.Client, cfg *config.Config, sourcePVC string) (string, error) {
+	size := cfg.Cluster.PVCSize
+	if expanded, err := computeExpandedSize(cfg.Cluster.PVCSize, cfg.Cluster.ExpandFactor); err == nil {
+		size = maxQuantityString(size, expanded)
+	}
+	if req, err := k8s.GetPVCRequestedSize(ctx, client, cfg.Cluster.Namespace, sourcePVC); err == nil && req != "" {
+		size = maxQuantityString(size, req)
+	}
+	if capStr, err := k8s.GetPVCCapacity(ctx, client, cfg.Cluster.Namespace, sourcePVC); err == nil && capStr != "" {
+		size = maxQuantityString(size, capStr)
+	}
+	return size, nil
+}
+
+func maxQuantityString(a, b string) string {
+	qa, errA := resource.ParseQuantity(a)
+	qb, errB := resource.ParseQuantity(b)
+	if errA != nil {
+		return b
+	}
+	if errB != nil {
+		return a
+	}
+	if qb.Cmp(qa) > 0 {
+		return b
+	}
+	return a
 }
