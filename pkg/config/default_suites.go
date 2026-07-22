@@ -69,7 +69,6 @@ func defaultSuites() Suites {
 					"verify":             "crc32c",
 					"verify_backlog":     "32",
 					"verify_fatal":       "1",
-					"verify_dump":        "1",
 					"random_generator":   "lfsr",
 					"group_reporting":    "1",
 				},
