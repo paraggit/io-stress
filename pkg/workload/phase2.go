@@ -301,6 +301,10 @@ func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Clien
 		log.Printf("[%s] FAIL: RESCHEDULE: delete: %v", pod.Name, err)
 		return
 	}
+	if err := k8s.WaitPodDeleted(ctx, client, cfg.Cluster.Namespace, pod.Name, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+		log.Printf("[%s] FAIL: RESCHEDULE: wait delete: %v", pod.Name, err)
+		return
+	}
 
 	log.Printf("[%s] RESCHEDULE: Recreating pod", pod.Name)
 	err := k8s.Retry(func() error {

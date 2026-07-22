@@ -32,16 +32,14 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	if !cfg.Cluster.NoCleanup {
 		defer func() {
-			// Bound cleanup so missing/stuck resources cannot hang the process indefinitely.
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), cfg.Cluster.WaitTimeout.Duration())
-			defer cancel()
-			cleanup(cleanupCtx, client, cfg)
+			cleanup(client, cfg)
 		}()
 	}
 
-	log.Printf("Ensuring namespace %s", cfg.Cluster.Namespace)
-	if err := k8s.EnsureNamespace(ctx, client, cfg.Cluster.Namespace); err != nil {
-		return err
+	// Drop leftovers from prior incomplete runs, then recreate the namespace.
+	log.Printf("Resetting namespace %s (clearing leftovers)", cfg.Cluster.Namespace)
+	if err := k8s.ResetNamespace(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+		return fmt.Errorf("reset namespace: %w", err)
 	}
 
 	allPods, err := setupResources(ctx, cfg, client)
@@ -232,78 +230,22 @@ func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, al
 	return readyPods, nil
 }
 
-func cleanup(ctx context.Context, client *k8s.Client, cfg *config.Config) {
+func cleanup(client *k8s.Client, cfg *config.Config) {
 	log.Printf("Cleaning up resources in namespace %s", cfg.Cluster.Namespace)
 
-	log.Printf("Cleanup: deleting pods")
-	// Clean up RBD resources
-	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
-		for _, name := range []string{
-			fmt.Sprintf("%s-rbd-pod-%d", cfg.Cluster.Prefix, i),
-			fmt.Sprintf("%s-rbd-clone-pod-%d", cfg.Cluster.Prefix, i),
-			fmt.Sprintf("%s-rbd-restored-pod-%d", cfg.Cluster.Prefix, i),
-		} {
-			if err := k8s.DeletePod(ctx, client, cfg.Cluster.Namespace, name); err != nil {
-				log.Printf("Cleanup: delete pod %s: %v", name, err)
-			}
-		}
-	}
+	// Fresh context per cleanup so a prior timeout cannot poison every API call.
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Cluster.WaitTimeout.Duration())
+	defer cancel()
 
-	// Clean up CephFS resources
-	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
-		for _, name := range []string{
-			fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i),
-			fmt.Sprintf("%s-cephfs-pod-%d-rwx", cfg.Cluster.Prefix, i),
-			fmt.Sprintf("%s-cephfs-clone-pod-%d", cfg.Cluster.Prefix, i),
-			fmt.Sprintf("%s-cephfs-restored-pod-%d", cfg.Cluster.Prefix, i),
-		} {
-			if err := k8s.DeletePod(ctx, client, cfg.Cluster.Namespace, name); err != nil {
-				log.Printf("Cleanup: delete pod %s: %v", name, err)
-			}
-		}
-	}
-
-	log.Printf("Cleanup: deleting PVCs")
-	// Clean up RBD PVCs
-	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
-		for _, suffix := range []string{"pvc", "clone-pvc", "restored-pvc"} {
-			name := fmt.Sprintf("%s-rbd-%s-%d", cfg.Cluster.Prefix, suffix, i)
-			if err := k8s.DeletePVC(ctx, client, cfg.Cluster.Namespace, name); err != nil {
-				log.Printf("Cleanup: delete PVC %s: %v", name, err)
-			}
-		}
-	}
-
-	// Clean up CephFS PVCs
-	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
-		for _, suffix := range []string{"pvc", "clone-pvc", "restored-pvc"} {
-			name := fmt.Sprintf("%s-cephfs-%s-%d", cfg.Cluster.Prefix, suffix, i)
-			if err := k8s.DeletePVC(ctx, client, cfg.Cluster.Namespace, name); err != nil {
-				log.Printf("Cleanup: delete PVC %s: %v", name, err)
-			}
-		}
-	}
-
-	log.Printf("Cleanup: deleting snapshots")
-	// Clean up RBD snapshots
-	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
-		snapName := fmt.Sprintf("%s-rbd-snap-%d", cfg.Cluster.Prefix, i)
-		if err := k8s.DeleteSnapshot(ctx, client, cfg.Cluster.Namespace, snapName); err != nil {
-			log.Printf("Cleanup: delete snapshot %s: %v", snapName, err)
-		}
-	}
-
-	// Clean up CephFS snapshots
-	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
-		snapName := fmt.Sprintf("%s-cephfs-snap-%d", cfg.Cluster.Prefix, i)
-		if err := k8s.DeleteSnapshot(ctx, client, cfg.Cluster.Namespace, snapName); err != nil {
-			log.Printf("Cleanup: delete snapshot %s: %v", snapName, err)
-		}
-	}
-
+	// Namespace delete cascades pods/PVCs/snapshots; much more reliable than per-object deletes.
 	log.Printf("Cleanup: deleting namespace %s", cfg.Cluster.Namespace)
 	if err := k8s.DeleteNamespace(ctx, client, cfg.Cluster.Namespace); err != nil {
 		log.Printf("Cleanup: delete namespace: %v", err)
+		return
+	}
+	if err := k8s.WaitNamespaceDeleted(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+		log.Printf("Cleanup: wait namespace deleted: %v (may still be terminating)", err)
+		return
 	}
 	log.Printf("Cleanup complete")
 }

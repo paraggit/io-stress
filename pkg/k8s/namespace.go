@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,4 +34,39 @@ func DeleteNamespace(ctx context.Context, c *Client, namespace string) error {
 		return fmt.Errorf("delete namespace %s: %w", namespace, err)
 	}
 	return nil
+}
+
+// WaitNamespaceDeleted blocks until the namespace is fully gone or timeout.
+func WaitNamespaceDeleted(ctx context.Context, c *Client, namespace string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		_, err := c.Clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil && ctx.Err() != nil {
+			return fmt.Errorf("wait namespace %s deleted: %w", namespace, ctx.Err())
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("namespace %s still present after %v", namespace, timeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+// ResetNamespace deletes the namespace (cascading leftovers) and recreates it.
+func ResetNamespace(ctx context.Context, c *Client, namespace string, timeout time.Duration) error {
+	if err := DeleteNamespace(ctx, c, namespace); err != nil {
+		return err
+	}
+	if err := WaitNamespaceDeleted(ctx, c, namespace, timeout); err != nil {
+		return err
+	}
+	return EnsureNamespace(ctx, c, namespace)
 }

@@ -48,6 +48,9 @@ func CreatePVC(ctx context.Context, c *Client, spec PVCSpec) error {
 		},
 	}
 	_, err = c.Clientset.CoreV1().PersistentVolumeClaims(spec.Namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("create PVC %s: %w", spec.Name, err)
 	}

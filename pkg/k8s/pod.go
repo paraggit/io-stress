@@ -69,6 +69,16 @@ func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
 	}
 
 	_, err := c.Clientset.CoreV1().Pods(spec.Namespace).Create(ctx, pod, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		// Replace stale pods (e.g. RestartPolicy=Never after OOMKill).
+		if delErr := DeletePod(ctx, c, spec.Namespace, spec.Name); delErr != nil {
+			return fmt.Errorf("replace pod %s: delete: %w", spec.Name, delErr)
+		}
+		if waitErr := WaitPodDeleted(ctx, c, spec.Namespace, spec.Name, 2*time.Minute); waitErr != nil {
+			return fmt.Errorf("replace pod %s: %w", spec.Name, waitErr)
+		}
+		_, err = c.Clientset.CoreV1().Pods(spec.Namespace).Create(ctx, pod, metav1.CreateOptions{})
+	}
 	if err != nil {
 		return fmt.Errorf("create pod %s: %w", spec.Name, err)
 	}
@@ -104,6 +114,7 @@ func WaitPodReady(ctx context.Context, c *Client, namespace, name string, timeou
 	return fmt.Errorf("pod %s did not become Ready within %v", name, timeout)
 }
 
+// DeletePod issues a force delete and returns once the API accepts it (does not wait).
 func DeletePod(ctx context.Context, c *Client, namespace, name string) error {
 	gracePeriod := int64(0)
 	err := c.Clientset.CoreV1().Pods(namespace).Delete(ctx, name, metav1.DeleteOptions{
@@ -115,23 +126,44 @@ func DeletePod(ctx context.Context, c *Client, namespace, name string) error {
 	if err != nil {
 		return fmt.Errorf("delete pod %s: %w", name, err)
 	}
+	return nil
+}
 
-	// Only wait for deletion when the pod actually existed.
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+// WaitPodDeleted waits until the pod object is gone.
+func WaitPodDeleted(ctx context.Context, c *Client, namespace, name string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	watcher, err := c.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: "metadata.name=" + name,
 	})
 	if err != nil {
-		return nil
+		// Fall back to polling get.
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			_, getErr := c.Clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+			if apierrors.IsNotFound(getErr) {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("pod %s still present after %v", name, timeout)
+			case <-ticker.C:
+			}
+		}
 	}
 	defer watcher.Stop()
+
+	// If already gone, a watch may never fire Deleted.
+	if _, getErr := c.Clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{}); apierrors.IsNotFound(getErr) {
+		return nil
+	}
 
 	for event := range watcher.ResultChan() {
 		if event.Type == watch.Deleted {
 			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("pod %s still present after %v", name, timeout)
 }
