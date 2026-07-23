@@ -48,6 +48,12 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	get("image", func() {
 		cfg.Tools.FIO.Image, err = fs.GetString("image")
 	})
+	get("tool", func() {
+		cfg.Tools.Active, err = fs.GetString("tool")
+	})
+	get("vdbench-image", func() {
+		cfg.Tools.VDBench.Image, err = fs.GetString("vdbench-image")
+	})
 	get("runtime", func() {
 		cfg.Tools.FIO.Runtime, err = fs.GetInt("runtime")
 	})

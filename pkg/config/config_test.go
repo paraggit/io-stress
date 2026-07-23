@@ -137,3 +137,56 @@ func names(patterns []Pattern) map[string]bool {
 	}
 	return m
 }
+
+func TestNewDefault_ActiveFIO(t *testing.T) {
+	cfg := NewDefault()
+	if cfg.Tools.Active != "fio" {
+		t.Fatalf("active=%q", cfg.Tools.Active)
+	}
+	if cfg.Tools.VDBench.Image != "quay.io/pakamble/vdbench:latest" {
+		t.Fatalf("vdbench image=%q", cfg.Tools.VDBench.Image)
+	}
+	if len(cfg.Tools.VDBench.Block.Patterns) < 1 {
+		t.Fatal("expected default vdbench block patterns")
+	}
+}
+
+func TestValidate_VDBench(t *testing.T) {
+	tests := []struct {
+		name    string
+		modify  func(*Config)
+		wantErr bool
+	}{
+		{"vdbench ok", func(c *Config) {
+			c.Tools.Active = "vdbench"
+		}, false},
+		{"unknown active", func(c *Config) { c.Tools.Active = "other" }, true},
+		{"vdbench empty image", func(c *Config) {
+			c.Tools.Active = "vdbench"
+			c.Tools.VDBench.Image = ""
+		}, true},
+		{"vdbench no block patterns with rbd", func(c *Config) {
+			c.Tools.Active = "vdbench"
+			c.Tools.VDBench.Block.Patterns = nil
+		}, true},
+		{"vdbench bad rdpct", func(c *Config) {
+			c.Tools.Active = "vdbench"
+			c.Tools.VDBench.Block.Patterns[0].Rdpct = 101
+		}, true},
+		{"fio still ok with empty vdbench patterns", func(c *Config) {
+			c.Tools.Active = "fio"
+			c.Tools.VDBench.Block.Patterns = nil
+			c.Tools.VDBench.Filesystem.Patterns = nil
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewDefault()
+			tt.modify(cfg)
+			err := Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err=%v wantErr=%v", err, tt.wantErr)
+			}
+		})
+	}
+}

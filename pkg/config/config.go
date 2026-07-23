@@ -36,9 +36,42 @@ type Backend struct {
 }
 
 type Tools struct {
+	Active     string         `yaml:"active" json:"active"`
 	FIO        FIO            `yaml:"fio" json:"fio"`
-	VDBench    map[string]any `yaml:"vdbench,omitempty" json:"vdbench,omitempty"`
+	VDBench    VDBench        `yaml:"vdbench" json:"vdbench"`
 	SmallFiles map[string]any `yaml:"smallfiles,omitempty" json:"smallfiles,omitempty"`
+}
+
+type VDBench struct {
+	Image      string            `yaml:"image" json:"image"`
+	Runtime    int               `yaml:"runtime" json:"runtime"`
+	OutputDir  string            `yaml:"output_dir" json:"output_dir"`
+	Block      VDBenchBlock      `yaml:"block" json:"block"`
+	Filesystem VDBenchFilesystem `yaml:"filesystem" json:"filesystem"`
+}
+
+type VDBenchPattern struct {
+	Name     string `yaml:"name" json:"name"`
+	Rdpct    int    `yaml:"rdpct" json:"rdpct"`
+	Seekpct  int    `yaml:"seekpct" json:"seekpct"`
+	Xfersize string `yaml:"xfersize" json:"xfersize"`
+	Skew     int    `yaml:"skew" json:"skew"`
+}
+
+type VDBenchBlock struct {
+	Size     string           `yaml:"size" json:"size"`
+	Patterns []VDBenchPattern `yaml:"patterns" json:"patterns"`
+}
+
+type VDBenchFilesystem struct {
+	Size                string           `yaml:"size" json:"size"`
+	Depth               int              `yaml:"depth" json:"depth"`
+	Width               int              `yaml:"width" json:"width"`
+	Files               int              `yaml:"files" json:"files"`
+	FileSize            string           `yaml:"file_size" json:"file_size"`
+	OpenFlags           string           `yaml:"openflags" json:"openflags"`
+	GroupAllFWDsInOneRD bool             `yaml:"group_all_fwds_in_one_rd" json:"group_all_fwds_in_one_rd"`
+	Patterns            []VDBenchPattern `yaml:"patterns" json:"patterns"`
 }
 
 type FIO struct {
@@ -88,6 +121,8 @@ func NewDefault() *Config {
 			SustainRuntime:    180,
 		},
 		Tools: Tools{
+			Active:  "fio",
+			VDBench: defaultVDBench(),
 			FIO: FIO{
 				Image:        "quay.io/ocsci/nginx:fio",
 				Runtime:      60,
@@ -118,20 +153,8 @@ func Validate(cfg *Config) error {
 	if cfg.Cluster.PVCSize == "" {
 		return fmt.Errorf("pvc-size must not be empty")
 	}
-	if cfg.Tools.FIO.Image == "" {
-		return fmt.Errorf("image must not be empty")
-	}
-	if cfg.Tools.FIO.Runtime < 1 {
-		return fmt.Errorf("runtime must be >= 1, got %d", cfg.Tools.FIO.Runtime)
-	}
 	if cfg.Cluster.ExpandFactor < 1 {
 		return fmt.Errorf("expand-factor must be >= 1, got %d", cfg.Cluster.ExpandFactor)
-	}
-	// Validate empty FIO suites when stress not skipped
-	if !cfg.Cluster.SkipFIOStress && (cfg.Cluster.RBD.NumPVC > 0 || cfg.Cluster.CephFS.NumPVC > 0) {
-		if len(cfg.Tools.FIO.Suites.Common) == 0 {
-			return fmt.Errorf("when skip_fio_stress is false and volumes will be created, at least one common FIO pattern must be defined")
-		}
 	}
 
 	// Validate negative NumPVC
@@ -142,12 +165,103 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("cephfs.num_pvc must not be negative, got %d", cfg.Cluster.CephFS.NumPVC)
 	}
 
+	active := cfg.Tools.Active
+	if active == "" {
+		active = "fio"
+	}
+	switch active {
+	case "fio":
+		if err := validateFIO(cfg); err != nil {
+			return err
+		}
+	case "vdbench":
+		if err := validateVDBench(cfg); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown tools.active %q (must be fio or vdbench)", cfg.Tools.Active)
+	}
+	return nil
+}
+
+func validateFIO(cfg *Config) error {
+	if cfg.Tools.FIO.Image == "" {
+		return fmt.Errorf("image must not be empty")
+	}
+	if cfg.Tools.FIO.Runtime < 1 {
+		return fmt.Errorf("runtime must be >= 1, got %d", cfg.Tools.FIO.Runtime)
+	}
+	if !cfg.Cluster.SkipFIOStress && (cfg.Cluster.RBD.NumPVC > 0 || cfg.Cluster.CephFS.NumPVC > 0) {
+		if len(cfg.Tools.FIO.Suites.Common) == 0 {
+			return fmt.Errorf("when skip_fio_stress is false and volumes will be created, at least one common FIO pattern must be defined")
+		}
+	}
 	for _, p := range allPatterns(cfg.Tools.FIO.Suites) {
 		if p.Name == "" {
 			return fmt.Errorf("pattern name must not be empty")
 		}
 	}
 	return nil
+}
+
+func validateVDBench(cfg *Config) error {
+	if cfg.Tools.VDBench.Image == "" {
+		return fmt.Errorf("vdbench image must not be empty")
+	}
+	if cfg.Tools.VDBench.Runtime < 1 {
+		return fmt.Errorf("vdbench runtime must be >= 1, got %d", cfg.Tools.VDBench.Runtime)
+	}
+	if needsBlockPatterns(cfg) && len(cfg.Tools.VDBench.Block.Patterns) == 0 {
+		return fmt.Errorf("when block RBD volumes will be created, at least one vdbench block pattern must be defined")
+	}
+	if needsFilesystemPatterns(cfg) && len(cfg.Tools.VDBench.Filesystem.Patterns) == 0 {
+		return fmt.Errorf("when filesystem volumes will be created, at least one vdbench filesystem pattern must be defined")
+	}
+	for _, p := range cfg.Tools.VDBench.Block.Patterns {
+		if err := validateVDBenchPattern(p); err != nil {
+			return err
+		}
+	}
+	for _, p := range cfg.Tools.VDBench.Filesystem.Patterns {
+		if err := validateVDBenchPattern(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateVDBenchPattern(p VDBenchPattern) error {
+	if p.Name == "" {
+		return fmt.Errorf("vdbench pattern name must not be empty")
+	}
+	if p.Xfersize == "" {
+		return fmt.Errorf("vdbench pattern %q xfersize must not be empty", p.Name)
+	}
+	if p.Rdpct < 0 || p.Rdpct > 100 {
+		return fmt.Errorf("vdbench pattern %q rdpct must be 0..100, got %d", p.Name, p.Rdpct)
+	}
+	return nil
+}
+
+func needsBlockPatterns(cfg *Config) bool {
+	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
+		if i%2 == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func needsFilesystemPatterns(cfg *Config) bool {
+	if cfg.Cluster.CephFS.NumPVC > 0 {
+		return true
+	}
+	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
+		if i%2 == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func allPatterns(s Suites) []Pattern {

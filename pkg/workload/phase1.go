@@ -15,6 +15,32 @@ import (
 )
 
 func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods []PodInfo, collector *report.Collector) error {
+	if cfg.Tools.Active == "vdbench" {
+		log.Println("=== PHASE 1: VDBENCH STRESS ===")
+
+		g, gCtx := errgroup.WithContext(ctx)
+		if cfg.Cluster.MaxParallelPods > 0 {
+			g.SetLimit(cfg.Cluster.MaxParallelPods)
+		}
+
+		for _, pod := range pods {
+			pod := pod
+			g.Go(func() error {
+				return runVdbenchOnPod(gCtx, cfg, client, pod, collector)
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			log.Printf("Phase 1 completed with errors: %v", err)
+		}
+
+		// Skip CephFS RWX sub-phase when active=vdbench
+
+		log.Println("=== PHASE 1 COMPLETE ===")
+		return nil
+	}
+
+	// existing FIO path
 	log.Println("=== PHASE 1: FIO STRESS ===")
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -75,7 +101,11 @@ func executeFIOJob(ctx context.Context, client *k8s.Client, pod PodInfo, job fio
 	args := fio.BuildArgs(job, pod.Target, cfg.Tools.FIO.OutputFormat)
 	cmd := append([]string{"fio"}, args...)
 
-	stdout, stderr, exitCode, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, "fio", cmd)
+	containerName := pod.ContainerName
+	if containerName == "" {
+		containerName = "iotool"
+	}
+	stdout, stderr, exitCode, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, containerName, cmd)
 	duration := time.Since(start)
 
 	result := report.JobResult{
@@ -124,12 +154,13 @@ func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Clie
 		g.Go(func() error {
 			secondPodName := pod.Name + "-rwx"
 			secondPod := k8s.PodSpec{
-				Name:       secondPodName,
-				Namespace:  cfg.Cluster.Namespace,
-				Image:      cfg.Tools.FIO.Image,
-				PVCName:    pod.PVCName,
-				VolumeMode: pod.VolumeMode,
-				Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "rwx"},
+				Name:          secondPodName,
+				Namespace:     cfg.Cluster.Namespace,
+				Image:         cfg.Tools.FIO.Image,
+				PVCName:       pod.PVCName,
+				VolumeMode:    pod.VolumeMode,
+				Labels:        map[string]string{"app": cfg.Cluster.Prefix, "role": "rwx"},
+				ContainerName: "iotool",
 			}
 			if err := k8s.CreatePod(ctx, client, secondPod); err != nil {
 				return fmt.Errorf("create RWX pod %s: %w", secondPodName, err)
@@ -157,11 +188,12 @@ func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Clie
 			})
 
 			rwxPodInfo := PodInfo{
-				Name:        secondPodName,
-				StorageType: "cephfs",
-				VolumeMode:  pod.VolumeMode,
-				Target:      pod.Target,
-				PVCName:     pod.PVCName,
+				Name:          secondPodName,
+				StorageType:   "cephfs",
+				VolumeMode:    pod.VolumeMode,
+				Target:        pod.Target,
+				PVCName:       pod.PVCName,
+				ContainerName: pod.ContainerName,
 			}
 			innerG.Go(func() error {
 				executeFIOJob(innerCtx, client, rwxPodInfo, readJob, cfg, collector)

@@ -3,12 +3,13 @@ package workload
 import corev1 "k8s.io/api/core/v1"
 
 type PodInfo struct {
-	Index       int
-	Name        string
-	StorageType string
-	VolumeMode  corev1.PersistentVolumeMode
-	Target      string
-	PVCName     string
+	Index         int
+	Name          string
+	StorageType   string
+	VolumeMode    corev1.PersistentVolumeMode
+	Target        string
+	PVCName       string
+	ContainerName string
 }
 
 func (p PodInfo) VolumeModeStr() string {

@@ -18,6 +18,14 @@ import (
 )
 
 func Run(ctx context.Context, cfg *config.Config) error {
+	if cfg.Cluster.SustainRuntime == 0 {
+		if cfg.Tools.Active == "vdbench" {
+			cfg.Cluster.SustainRuntime = cfg.Tools.VDBench.Runtime * 3
+		} else {
+			cfg.Cluster.SustainRuntime = cfg.Tools.FIO.Runtime * 3
+		}
+	}
+
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
@@ -63,13 +71,15 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		log.Println("Phase 1 skipped (--skip-fio-stress)")
 	}
 
-	if !cfg.Cluster.SkipLifecycle {
+	if !skipLifecycleForTool(cfg) {
 		if err := runPhase2(ctx, cfg, client, readyPods, collector); err != nil {
 			log.Printf("Phase 2 completed with errors: %v", err)
 		}
 		if err := runPhase3(ctx, cfg, client, readyPods, collector); err != nil {
 			log.Printf("Phase 3 completed with errors: %v", err)
 		}
+	} else if cfg.Tools.Active == "vdbench" {
+		log.Println("Phase 2/3 skipped (tools.active=vdbench)")
 	}
 
 	results := collector.Results()
@@ -119,12 +129,13 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		}
 
 		allPods = append(allPods, PodInfo{
-			Index:       i,
-			Name:        podName,
-			StorageType: "rbd",
-			VolumeMode:  volumeMode,
-			Target:      target,
-			PVCName:     pvcName,
+			Index:         i,
+			Name:          podName,
+			StorageType:   "rbd",
+			VolumeMode:    volumeMode,
+			Target:        target,
+			PVCName:       pvcName,
+			ContainerName: "iotool",
 		})
 
 		g.Go(func() error {
@@ -148,12 +159,13 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i)
 
 		allPods = append(allPods, PodInfo{
-			Index:       i,
-			Name:        podName,
-			StorageType: "cephfs",
-			VolumeMode:  corev1.PersistentVolumeFilesystem,
-			Target:      "/mnt/data/fio.dat",
-			PVCName:     pvcName,
+			Index:         i,
+			Name:          podName,
+			StorageType:   "cephfs",
+			VolumeMode:    corev1.PersistentVolumeFilesystem,
+			Target:        "/mnt/data/fio.dat",
+			PVCName:       pvcName,
+			ContainerName: "iotool",
 		})
 
 		g.Go(func() error {
@@ -195,13 +207,14 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		gPod.Go(func() error {
 			return k8s.Retry(func() error {
 				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
-					Name:       pod.Name,
-					Namespace:  cfg.Cluster.Namespace,
-					Image:      cfg.Tools.FIO.Image,
-					PVCName:    pod.PVCName,
-					VolumeMode: pod.VolumeMode,
-					Labels:     map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
-					Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
+					Name:          pod.Name,
+					Namespace:     cfg.Cluster.Namespace,
+					Image:         activeImage(cfg),
+					PVCName:       pod.PVCName,
+					VolumeMode:    pod.VolumeMode,
+					Labels:        map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
+					Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
+					ContainerName: pod.ContainerName,
 				})
 			})
 		})

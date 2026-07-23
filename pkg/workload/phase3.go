@@ -79,6 +79,7 @@ func verifyCloneAndRestored(ctx context.Context, cfg *config.Config, client *k8s
 		podInfo := PodInfo{
 			Index: pod.Index, Name: targetPod, StorageType: pod.StorageType,
 			VolumeMode: pod.VolumeMode, Target: pod.Target,
+			ContainerName: pod.ContainerName,
 		}
 		executeFIOJob(ctx, client, podInfo, verifyJob, cfg, collector)
 	}
