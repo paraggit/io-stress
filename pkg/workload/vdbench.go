@@ -2,6 +2,7 @@ package workload
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -114,8 +115,9 @@ func executeVDBenchPattern(ctx context.Context, client *k8s.Client, pod PodInfo,
 		log.Printf("[%s] FAIL %s (rc=%d, %v)", pod.Name, pattern.Name, exitCode, duration)
 	} else {
 		result.Status = "pass"
-		// VDBench doesn't output JSON like FIO, so we store the raw output
-		result.FIOOutput = []byte(stdout) // Note: reusing FIOOutput field for VDBench output
+		// VDBench doesn't output JSON like FIO, so we marshal raw stdout as JSON string
+		// This ensures FIOOutput (json.RawMessage) can be properly marshaled for reports
+		result.FIOOutput, _ = json.Marshal(string(stdout))
 		log.Printf("[%s] PASS %s (%v)", pod.Name, pattern.Name, duration)
 	}
 

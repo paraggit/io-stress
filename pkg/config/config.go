@@ -43,11 +43,11 @@ type Tools struct {
 }
 
 type VDBench struct {
-	Image      string              `yaml:"image" json:"image"`
-	Runtime    int                 `yaml:"runtime" json:"runtime"`
-	OutputDir  string              `yaml:"output_dir" json:"output_dir"`
-	Block      VDBenchBlock        `yaml:"block" json:"block"`
-	Filesystem VDBenchFilesystem   `yaml:"filesystem" json:"filesystem"`
+	Image      string            `yaml:"image" json:"image"`
+	Runtime    int               `yaml:"runtime" json:"runtime"`
+	OutputDir  string            `yaml:"output_dir" json:"output_dir"`
+	Block      VDBenchBlock      `yaml:"block" json:"block"`
+	Filesystem VDBenchFilesystem `yaml:"filesystem" json:"filesystem"`
 }
 
 type VDBenchPattern struct {
