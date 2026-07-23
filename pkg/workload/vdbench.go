@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -108,11 +109,11 @@ func executeVDBenchPattern(ctx context.Context, client *k8s.Client, pod PodInfo,
 	if err != nil {
 		result.Status = "fail"
 		result.Error = fmt.Sprintf("%v; stderr: %s", err, string(stderr))
-		log.Printf("[%s] FAIL %s (rc=%d, %v)", pod.Name, pattern.Name, exitCode, duration)
+		log.Printf("[%s] FAIL %s (rc=%d, %v): %s", pod.Name, pattern.Name, exitCode, duration, truncateForLog(result.Error, 200))
 	} else if exitCode != 0 {
 		result.Status = "fail"
-		result.Error = string(stderr)
-		log.Printf("[%s] FAIL %s (rc=%d, %v)", pod.Name, pattern.Name, exitCode, duration)
+		result.Error = firstNonEmpty(string(stderr), string(stdout))
+		log.Printf("[%s] FAIL %s (rc=%d, %v): %s", pod.Name, pattern.Name, exitCode, duration, truncateForLog(result.Error, 200))
 	} else {
 		result.Status = "pass"
 		// VDBench doesn't output JSON like FIO, so we marshal raw stdout as JSON string
@@ -123,4 +124,19 @@ func executeVDBenchPattern(ctx context.Context, client *k8s.Client, pod PodInfo,
 
 	collector.Add(result)
 	return result
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
+}
+
+func truncateForLog(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if max > 0 && len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
 }

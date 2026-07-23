@@ -32,7 +32,7 @@ func TestBuildFilesystemParam(t *testing.T) {
 	)
 	wantFSD := "fsd=fsd1,anchor=/mnt/data,depth=4,width=5,files=10,size=1m,openflags=o_direct\n"
 	wantFWD := "fwd=fwd1,fsd=fsd1,rdpct=0,xfersize=1m,skew=0,fileio=sequential,fileselect=sequential\n"
-	wantRD := "rd=rd1,fwd=fwd1,fwdrate=max,format=yes,elapsed=60,interval=1,group_all_fwds_in_one_rd=yes\n"
+	wantRD := "rd=rd1,fwd=fwd1,fwdrate=max,format=yes,elapsed=60,interval=1\n"
 	if !strings.Contains(got, wantFSD) {
 		t.Fatalf("fsd line missing:\n%s", got)
 	}
@@ -44,6 +44,9 @@ func TestBuildFilesystemParam(t *testing.T) {
 	}
 	if strings.Contains(got, "seekpct=") {
 		t.Fatalf("FWD must not emit seekpct: %s", got)
+	}
+	if strings.Contains(got, "group_all_fwds_in_one_rd") {
+		t.Fatalf("must not emit unsupported group_all_fwds_in_one_rd: %s", got)
 	}
 }
 

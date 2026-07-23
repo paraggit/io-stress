@@ -6,7 +6,8 @@ func defaultVDBench() VDBench {
 		Runtime:   60,
 		OutputDir: "/tmp/vdbench-out",
 		Block: VDBenchBlock{
-			Size: "15g",
+			// Must fit under default cluster.pvc_size (10Gi).
+			Size: "8g",
 			Patterns: []VDBenchPattern{
 				{Name: "random_write", Rdpct: 0, Seekpct: 100, Xfersize: "4k", Skew: 0},
 				{Name: "random_read", Rdpct: 100, Seekpct: 100, Xfersize: "8k", Skew: 0},

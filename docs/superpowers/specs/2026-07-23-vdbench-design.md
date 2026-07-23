@@ -177,13 +177,14 @@ rd=rd1,wd=wd1,iorate=max,elapsed=<runtime>,interval=1
 ```
 fsd=fsd1,anchor=/mnt/data,depth=<depth>,width=<width>,files=<files>,size=<file_size>[,openflags=<openflags>]
 fwd=fwd1,fsd=fsd1,rdpct=<rdpct>,xfersize=<xfersize>,skew=<skew>,fileio=<mode>,fileselect=<mode>
-rd=rd1,fwd=fwd1,fwdrate=max,format=yes,elapsed=<runtime>,interval=1[,group_all_fwds_in_one_rd=yes]
+rd=rd1,fwd=fwd1,fwdrate=max,format=yes,elapsed=<runtime>,interval=1
 ```
 
 - Omit `openflags=` when empty (buffered).
-- Emit `group_all_fwds_in_one_rd=yes` only when config flag is true.
 - Config `seekpct` maps to FWD `fileio`/`fileselect`: `0` → `sequential`, else `random` (`seekpct` is WD-only and rejected on FWD).
 - Filesystem RD uses `fwdrate=` (not `iorate=`); `format=yes` creates the file tree before the run.
+- `group_all_fwds_in_one_rd` is kept in config for compatibility but **not emitted** — unsupported on vdbench50407 (default image).
+- Block `size` must be ≤ PVC capacity (default `8g` for default `pvc_size: 10Gi`).
 
 ### Lifecycle
 

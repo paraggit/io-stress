@@ -37,10 +37,8 @@ func BuildFilesystemParam(fs config.VDBenchFilesystem, p config.VDBenchPattern, 
 	fwd := fmt.Sprintf("fwd=fwd1,fsd=fsd1,rdpct=%d,xfersize=%s,skew=%d,fileio=%s,fileselect=%s",
 		p.Rdpct, p.Xfersize, p.Skew, mode, mode)
 	// Filesystem RD uses fwdrate= (not iorate=); format=yes creates the file tree first.
+	// group_all_fwds_in_one_rd is not valid in vdbench50407 — config field is ignored.
 	rd := fmt.Sprintf("rd=rd1,fwd=fwd1,fwdrate=max,format=yes,elapsed=%d,interval=1", runtime)
-	if fs.GroupAllFWDsInOneRD {
-		rd += ",group_all_fwds_in_one_rd=yes"
-	}
 	var b strings.Builder
 	b.WriteString(fsd)
 	b.WriteByte('\n')
