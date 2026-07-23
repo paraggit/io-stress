@@ -15,13 +15,14 @@ func defaultVDBench() VDBench {
 			},
 		},
 		Filesystem: VDBenchFilesystem{
-			Size:                "10m",
-			Depth:               4,
-			Width:               5,
-			Files:               10,
+			Size: "10m",
+			// Keep the tree small: format=yes runs per pattern; large trees look like a hang.
+			Depth:               2,
+			Width:               2,
+			Files:               4,
 			FileSize:            "1m",
 			OpenFlags:           "o_direct",
-			GroupAllFWDsInOneRD: true,
+			GroupAllFWDsInOneRD: false,
 			Patterns: []VDBenchPattern{
 				{Name: "sequential_write", Rdpct: 0, Seekpct: 0, Xfersize: "1m", Skew: 0},
 				{Name: "random_mixed", Rdpct: 70, Seekpct: 100, Xfersize: "256k", Skew: 0},
