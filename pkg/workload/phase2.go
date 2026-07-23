@@ -129,13 +129,14 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 	}
 
 	err = k8s.CreatePod(ctx, client, k8s.PodSpec{
-		Name:       clonePodName,
-		Namespace:  cfg.Cluster.Namespace,
-		Image:      cfg.Tools.FIO.Image,
-		PVCName:    clonePVCName,
-		VolumeMode: pod.VolumeMode,
-		Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "clone"},
-		Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
+		Name:          clonePodName,
+		Namespace:     cfg.Cluster.Namespace,
+		Image:         cfg.Tools.FIO.Image,
+		PVCName:       clonePVCName,
+		VolumeMode:    pod.VolumeMode,
+		Labels:        map[string]string{"app": cfg.Cluster.Prefix, "role": "clone"},
+		Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
+		ContainerName: "iotool",
 	})
 	if err != nil {
 		log.Printf("[%s] FAIL: CLONE: pod create: %v", pod.Name, err)
@@ -150,6 +151,7 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 	clonePodInfo := PodInfo{
 		Index: pod.Index, Name: clonePodName, StorageType: pod.StorageType,
 		VolumeMode: pod.VolumeMode, Target: pod.Target, PVCName: clonePVCName,
+		ContainerName: pod.ContainerName,
 	}
 	for _, job := range fio.ReducedSuite(pod.Target, cfg) {
 		executeFIOJob(ctx, client, clonePodInfo, job, cfg, collector)
@@ -212,13 +214,14 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 	}
 
 	err = k8s.CreatePod(ctx, client, k8s.PodSpec{
-		Name:       restoredPodName,
-		Namespace:  cfg.Cluster.Namespace,
-		Image:      cfg.Tools.FIO.Image,
-		PVCName:    restoredPVCName,
-		VolumeMode: pod.VolumeMode,
-		Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "restored"},
-		Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
+		Name:          restoredPodName,
+		Namespace:     cfg.Cluster.Namespace,
+		Image:         cfg.Tools.FIO.Image,
+		PVCName:       restoredPVCName,
+		VolumeMode:    pod.VolumeMode,
+		Labels:        map[string]string{"app": cfg.Cluster.Prefix, "role": "restored"},
+		Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
+		ContainerName: "iotool",
 	})
 	if err != nil {
 		log.Printf("[%s] FAIL: SNAPSHOT: restored pod: %v", pod.Name, err)
@@ -233,6 +236,7 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 	restoredPodInfo := PodInfo{
 		Index: pod.Index, Name: restoredPodName, StorageType: pod.StorageType,
 		VolumeMode: pod.VolumeMode, Target: pod.Target, PVCName: restoredPVCName,
+		ContainerName: pod.ContainerName,
 	}
 	for _, job := range fio.ReducedSuite(pod.Target, cfg) {
 		executeFIOJob(ctx, client, restoredPodInfo, job, cfg, collector)
@@ -309,13 +313,14 @@ func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Clien
 	log.Printf("[%s] RESCHEDULE: Recreating pod", pod.Name)
 	err := k8s.Retry(func() error {
 		return k8s.CreatePod(ctx, client, k8s.PodSpec{
-			Name:       pod.Name,
-			Namespace:  cfg.Cluster.Namespace,
-			Image:      cfg.Tools.FIO.Image,
-			PVCName:    pod.PVCName,
-			VolumeMode: pod.VolumeMode,
-			Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "reschedule"},
-			Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
+			Name:          pod.Name,
+			Namespace:     cfg.Cluster.Namespace,
+			Image:         cfg.Tools.FIO.Image,
+			PVCName:       pod.PVCName,
+			VolumeMode:    pod.VolumeMode,
+			Labels:        map[string]string{"app": cfg.Cluster.Prefix, "role": "reschedule"},
+			Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
+			ContainerName: pod.ContainerName,
 		})
 	})
 	if err != nil {

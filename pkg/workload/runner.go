@@ -119,12 +119,13 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		}
 
 		allPods = append(allPods, PodInfo{
-			Index:       i,
-			Name:        podName,
-			StorageType: "rbd",
-			VolumeMode:  volumeMode,
-			Target:      target,
-			PVCName:     pvcName,
+			Index:         i,
+			Name:          podName,
+			StorageType:   "rbd",
+			VolumeMode:    volumeMode,
+			Target:        target,
+			PVCName:       pvcName,
+			ContainerName: "iotool",
 		})
 
 		g.Go(func() error {
@@ -148,12 +149,13 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i)
 
 		allPods = append(allPods, PodInfo{
-			Index:       i,
-			Name:        podName,
-			StorageType: "cephfs",
-			VolumeMode:  corev1.PersistentVolumeFilesystem,
-			Target:      "/mnt/data/fio.dat",
-			PVCName:     pvcName,
+			Index:         i,
+			Name:          podName,
+			StorageType:   "cephfs",
+			VolumeMode:    corev1.PersistentVolumeFilesystem,
+			Target:        "/mnt/data/fio.dat",
+			PVCName:       pvcName,
+			ContainerName: "iotool",
 		})
 
 		g.Go(func() error {
@@ -195,13 +197,14 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		gPod.Go(func() error {
 			return k8s.Retry(func() error {
 				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
-					Name:       pod.Name,
-					Namespace:  cfg.Cluster.Namespace,
-					Image:      cfg.Tools.FIO.Image,
-					PVCName:    pod.PVCName,
-					VolumeMode: pod.VolumeMode,
-					Labels:     map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
-					Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
+					Name:          pod.Name,
+					Namespace:     cfg.Cluster.Namespace,
+					Image:         cfg.Tools.FIO.Image,
+					PVCName:       pod.PVCName,
+					VolumeMode:    pod.VolumeMode,
+					Labels:        map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
+					Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
+					ContainerName: pod.ContainerName,
 				})
 			})
 		})

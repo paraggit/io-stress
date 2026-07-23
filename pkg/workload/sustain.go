@@ -22,7 +22,11 @@ func startSustainWorkload(ctx context.Context, client *k8s.Client, cfg *config.C
 		fmt.Sprintf("--runtime=%d", cfg.Cluster.SustainRuntime),
 		"--group_reporting=1",
 	}
-	_, _, _, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, "fio", cmd)
+	containerName := pod.ContainerName
+	if containerName == "" {
+		containerName = "iotool"
+	}
+	_, _, _, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, containerName, cmd)
 	if err != nil && ctx.Err() == nil {
 		log.Printf("[%s] Sustain workload error: %v", pod.Name, err)
 	}

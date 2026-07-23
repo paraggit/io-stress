@@ -11,14 +11,22 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 )
 
+func getContainerName(name string) string {
+	if name == "" {
+		return "iotool"
+	}
+	return name
+}
+
 type PodSpec struct {
-	Name       string
-	Namespace  string
-	Image      string
-	PVCName    string
-	VolumeMode corev1.PersistentVolumeMode
-	Labels     map[string]string
-	Privileged bool
+	Name          string
+	Namespace     string
+	Image         string
+	PVCName       string
+	VolumeMode    corev1.PersistentVolumeMode
+	Labels        map[string]string
+	Privileged    bool
+	ContainerName string
 }
 
 func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
@@ -32,7 +40,7 @@ func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
-					Name:            "fio",
+					Name:            getContainerName(spec.ContainerName),
 					Image:           spec.Image,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         []string{"sleep", "infinity"},

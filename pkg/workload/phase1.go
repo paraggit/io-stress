@@ -75,7 +75,11 @@ func executeFIOJob(ctx context.Context, client *k8s.Client, pod PodInfo, job fio
 	args := fio.BuildArgs(job, pod.Target, cfg.Tools.FIO.OutputFormat)
 	cmd := append([]string{"fio"}, args...)
 
-	stdout, stderr, exitCode, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, "fio", cmd)
+	containerName := pod.ContainerName
+	if containerName == "" {
+		containerName = "iotool"
+	}
+	stdout, stderr, exitCode, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, containerName, cmd)
 	duration := time.Since(start)
 
 	result := report.JobResult{
@@ -124,12 +128,13 @@ func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Clie
 		g.Go(func() error {
 			secondPodName := pod.Name + "-rwx"
 			secondPod := k8s.PodSpec{
-				Name:       secondPodName,
-				Namespace:  cfg.Cluster.Namespace,
-				Image:      cfg.Tools.FIO.Image,
-				PVCName:    pod.PVCName,
-				VolumeMode: pod.VolumeMode,
-				Labels:     map[string]string{"app": cfg.Cluster.Prefix, "role": "rwx"},
+				Name:          secondPodName,
+				Namespace:     cfg.Cluster.Namespace,
+				Image:         cfg.Tools.FIO.Image,
+				PVCName:       pod.PVCName,
+				VolumeMode:    pod.VolumeMode,
+				Labels:        map[string]string{"app": cfg.Cluster.Prefix, "role": "rwx"},
+				ContainerName: "iotool",
 			}
 			if err := k8s.CreatePod(ctx, client, secondPod); err != nil {
 				return fmt.Errorf("create RWX pod %s: %w", secondPodName, err)
@@ -157,11 +162,12 @@ func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Clie
 			})
 
 			rwxPodInfo := PodInfo{
-				Name:        secondPodName,
-				StorageType: "cephfs",
-				VolumeMode:  pod.VolumeMode,
-				Target:      pod.Target,
-				PVCName:     pod.PVCName,
+				Name:          secondPodName,
+				StorageType:   "cephfs",
+				VolumeMode:    pod.VolumeMode,
+				Target:        pod.Target,
+				PVCName:       pod.PVCName,
+				ContainerName: pod.ContainerName,
 			}
 			innerG.Go(func() error {
 				executeFIOJob(innerCtx, client, rwxPodInfo, readJob, cfg, collector)

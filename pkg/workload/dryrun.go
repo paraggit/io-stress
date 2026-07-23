@@ -64,7 +64,7 @@ metadata:
 spec:
   restartPolicy: Never
   containers:
-    - name: fio
+    - name: iotool
       image: %s
       imagePullPolicy: IfNotPresent
       command: ["sleep", "infinity"]
@@ -88,7 +88,7 @@ metadata:
 spec:
   restartPolicy: Never
   containers:
-    - name: fio
+    - name: iotool
       image: %s
       imagePullPolicy: IfNotPresent
       command: ["sleep", "infinity"]
