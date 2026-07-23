@@ -1,4 +1,5 @@
 /odf-io-stress
+/dist/
 results/
 .worktrees/
 odf-io-stress.yaml

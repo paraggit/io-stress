@@ -12,8 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is set via -ldflags at release build time (e.g. -X main.version=v1.0.0).
+var version = "dev"
+
 func main() {
-	rootCmd := &cobra.Command{Use: "odf-io-stress", Short: "ODF IO stress testing tool for RBD and CephFS"}
+	rootCmd := &cobra.Command{
+		Use:     "odf-io-stress",
+		Short:   "ODF IO stress testing tool for RBD and CephFS",
+		Version: version,
+	}
 	// Don't dump the flags list on runtime failures (e.g. "N job(s) failed").
 	rootCmd.SilenceUsage = true
 

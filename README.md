@@ -11,7 +11,21 @@ ODF IO stress testing tool for RBD and CephFS. It creates PVC/pod pairs on an Op
 ## Build
 
 ```bash
+make build
+# or
 go build -o odf-io-stress ./cmd/odf-io-stress
+```
+
+## Release
+
+Every merge (push) to `main` triggers GitHub Actions to test, cross-compile binaries, and publish a GitHub Release.
+
+Version format: `v0.0.<run_number>-<short_sha>` (for example `v0.0.12-a1b2c3d`).
+
+Artifacts (linux/darwin × amd64/arm64) and SHA256 checksums are attached to the release. Locally you can build the same set with:
+
+```bash
+make release-binaries
 ```
 
 ## Usage
