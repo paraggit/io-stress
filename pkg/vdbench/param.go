@@ -13,8 +13,18 @@ func BuildBlockParam(block config.VDBenchBlock, p config.VDBenchPattern, lun str
 	sd := fmt.Sprintf("sd=sd1,lun=%s,openflags=o_direct,size=%s", lun, block.Size)
 	wd := fmt.Sprintf("wd=wd1,sd=sd1,rdpct=%d,seekpct=%d,xfersize=%s,skew=%d",
 		p.Rdpct, p.Seekpct, p.Xfersize, p.Skew)
-	rd := fmt.Sprintf("rd=rd1,wd=wd1,elapsed=%d,interval=1", runtime)
+	// Block RD requires iorate= (vdbench rejects RD without it).
+	rd := fmt.Sprintf("rd=rd1,wd=wd1,iorate=max,elapsed=%d,interval=1", runtime)
 	return sd + "\n" + wd + "\n" + rd + "\n"
+}
+
+// fileIOMode maps config seekpct onto FWD fileio/fileselect.
+// FWD does not accept seekpct= (that keyword is WD-only); 0 → sequential, else random.
+func fileIOMode(seekpct int) string {
+	if seekpct == 0 {
+		return "sequential"
+	}
+	return "random"
 }
 
 func BuildFilesystemParam(fs config.VDBenchFilesystem, p config.VDBenchPattern, runtime int) string {
@@ -23,9 +33,11 @@ func BuildFilesystemParam(fs config.VDBenchFilesystem, p config.VDBenchPattern, 
 	if fs.OpenFlags != "" {
 		fsd += ",openflags=" + fs.OpenFlags
 	}
-	fwd := fmt.Sprintf("fwd=fwd1,fsd=fsd1,rdpct=%d,seekpct=%d,xfersize=%s,skew=%d",
-		p.Rdpct, p.Seekpct, p.Xfersize, p.Skew)
-	rd := fmt.Sprintf("rd=rd1,fwd=fwd1,elapsed=%d,interval=1", runtime)
+	mode := fileIOMode(p.Seekpct)
+	fwd := fmt.Sprintf("fwd=fwd1,fsd=fsd1,rdpct=%d,xfersize=%s,skew=%d,fileio=%s,fileselect=%s",
+		p.Rdpct, p.Xfersize, p.Skew, mode, mode)
+	// Filesystem RD uses fwdrate= (not iorate=); format=yes creates the file tree first.
+	rd := fmt.Sprintf("rd=rd1,fwd=fwd1,fwdrate=max,format=yes,elapsed=%d,interval=1", runtime)
 	if fs.GroupAllFWDsInOneRD {
 		rd += ",group_all_fwds_in_one_rd=yes"
 	}
