@@ -154,7 +154,7 @@ tools:
   smallfiles: {}       # reserved; not supported yet
 ```
 
-FIO suite entries are patterns with `name`, optional `category`/`size`/`runtime`, and FIO-native `params` (e.g. `rw`, `bs`, `ioengine`). Vdbench patterns use `rdpct`, `seekpct`, `xfersize`, and `skew`; block patterns apply to RBD block volumes, filesystem patterns to RBD filesystem and CephFS volumes. Run `generate-config` for a full sample including default FIO suites and Vdbench patterns.
+FIO suite entries are patterns with `name`, optional `category`/`size`/`runtime`, and FIO-native `params` (e.g. `rw`, `bs`, `ioengine`). Vdbench patterns use `rdpct`, `seekpct`, `xfersize`, and `skew`; block patterns apply to RBD block volumes, filesystem patterns to RBD filesystem and CephFS volumes (`seekpct` maps to FWD `fileio`/`fileselect`: `0` → sequential, else random). Run `generate-config` for a full sample including default FIO suites and Vdbench patterns.
 
 When `tools.active` is `vdbench`, Phase 2 (lifecycle storm) and Phase 3 (data integrity verify) are skipped automatically regardless of `skip_lifecycle`.
 
