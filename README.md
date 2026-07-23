@@ -1,6 +1,6 @@
 # odf-io-stress
 
-ODF IO stress testing tool for RBD and CephFS. It creates PVC/pod pairs on an OpenShift Data Foundation cluster, runs FIO workloads, exercises volume lifecycle operations (expand, clone, snapshot/restore), and verifies data integrity.
+ODF IO stress testing tool for RBD and CephFS. It creates PVC/pod pairs on an OpenShift Data Foundation cluster, runs FIO or Vdbench workloads, exercises volume lifecycle operations (expand, clone, snapshot/restore), and verifies data integrity.
 
 ## Prerequisites
 
@@ -71,6 +71,9 @@ Run without `--config` uses built-in defaults (same effective behavior as before
 
 # Keep resources after the run
 ./odf-io-stress run --no-cleanup
+
+# Vdbench stress (lifecycle phases auto-skipped)
+./odf-io-stress run --config odf-io-stress.yaml --tool vdbench
 ```
 
 ### Generate config
@@ -104,6 +107,8 @@ cluster:
   # ... lifecycle, cleanup, sustain, etc.
 
 tools:
+  active: fio          # fio | vdbench (default: fio); overridden by --tool
+
   fio:
     image: quay.io/ocsci/nginx:fio
     runtime: 60
@@ -119,12 +124,39 @@ tools:
       cephfs_rwx: []   # CephFS RWX shared tests
       lifecycle: []    # reduced suite for phase 2/3
 
-  # Reserved for future IO engines — ignored in v1 (warning if non-empty)
-  vdbench: {}
-  smallfiles: {}
+  vdbench:
+    image: quay.io/pakamble/vdbench:latest
+    runtime: 60
+    output_dir: /tmp/vdbench-out
+    block:
+      size: "15g"
+      patterns:
+        - name: random_write
+          rdpct: 0
+          seekpct: 100
+          xfersize: "4k"
+          skew: 0
+    filesystem:
+      size: "10m"
+      depth: 4
+      width: 5
+      files: 10
+      file_size: "1m"
+      openflags: "o_direct"   # empty = buffered
+      group_all_fwds_in_one_rd: true
+      patterns:
+        - name: sequential_write
+          rdpct: 0
+          seekpct: 0
+          xfersize: "1m"
+          skew: 0
+
+  smallfiles: {}       # reserved; not supported yet
 ```
 
-Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`, and FIO-native `params` (e.g. `rw`, `bs`, `ioengine`). Run `generate-config` for a full sample including default suites.
+FIO suite entries are patterns with `name`, optional `category`/`size`/`runtime`, and FIO-native `params` (e.g. `rw`, `bs`, `ioengine`). Vdbench patterns use `rdpct`, `seekpct`, `xfersize`, and `skew`; block patterns apply to RBD block volumes, filesystem patterns to RBD filesystem and CephFS volumes. Run `generate-config` for a full sample including default FIO suites and Vdbench patterns.
+
+When `tools.active` is `vdbench`, Phase 2 (lifecycle storm) and Phase 3 (data integrity verify) are skipped automatically regardless of `skip_lifecycle`.
 
 ### Flags
 
@@ -140,6 +172,8 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--cephfs-storage-class` | `ocs-storagecluster-cephfs` | CephFS StorageClass |
 | `--pvc-size` | `10Gi` | PVC size |
 | `-i, --image` | `quay.io/ocsci/nginx:fio` | FIO container image |
+| `--tool` | `fio` | IO engine: `fio` or `vdbench` (`tools.active`) |
+| `--vdbench-image` | `quay.io/pakamble/vdbench:latest` | Vdbench container image |
 | `-r, --runtime` | `60` | FIO runtime (seconds) |
 | `-b, --bs` | `512` | FIO block size |
 | `--offset` | `512` | FIO offset |
@@ -167,9 +201,9 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 
 ## Test phases
 
-1. **FIO stress** — Unaligned IO, object-boundary writes, mixed block sizes, integrity checks, and backend-specific jobs (RBD block / CephFS filesystem, including RWX where applicable).
-2. **Lifecycle storm** — PVC expand, clone, and snapshot/restore on a subset of pods (controlled by `--lifecycle-interval`).
-3. **Data integrity verify** — FIO verify against clone and restored volumes.
+1. **IO stress** — FIO or Vdbench workloads on created volumes (engine selected by `tools.active` / `--tool`). FIO runs unaligned IO, object-boundary writes, mixed block sizes, integrity checks, and backend-specific jobs (RBD block / CephFS filesystem, including RWX where applicable). Vdbench runs block/filesystem patterns from config; CephFS RWX multi-pod tests are skipped.
+2. **Lifecycle storm** — PVC expand, clone, and snapshot/restore on a subset of pods (controlled by `--lifecycle-interval`). Skipped automatically when `tools.active` is `vdbench`.
+3. **Data integrity verify** — FIO verify against clone and restored volumes. Skipped automatically when `tools.active` is `vdbench`.
 
 ## Results
 
@@ -186,6 +220,7 @@ The `results/` directory is gitignored.
 cmd/odf-io-stress/   # CLI entrypoint
 pkg/config/          # Config types, load/merge, flags, defaults
 pkg/fio/             # FIO job definitions (pattern → job)
+pkg/vdbench/         # Vdbench param file generation
 pkg/k8s/             # Kubernetes helpers (PVC, pod, snapshot, exec)
 pkg/workload/        # Orchestration (phases, dry-run, sustain)
 pkg/report/          # Result collection and summary
