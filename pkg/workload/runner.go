@@ -63,13 +63,15 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		log.Println("Phase 1 skipped (--skip-fio-stress)")
 	}
 
-	if !cfg.Cluster.SkipLifecycle {
+	if !skipLifecycleForTool(cfg) {
 		if err := runPhase2(ctx, cfg, client, readyPods, collector); err != nil {
 			log.Printf("Phase 2 completed with errors: %v", err)
 		}
 		if err := runPhase3(ctx, cfg, client, readyPods, collector); err != nil {
 			log.Printf("Phase 3 completed with errors: %v", err)
 		}
+	} else if cfg.Tools.Active == "vdbench" {
+		log.Println("Phase 2/3 skipped (tools.active=vdbench)")
 	}
 
 	results := collector.Results()
@@ -196,16 +198,16 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		pod := pod
 		gPod.Go(func() error {
 			return k8s.Retry(func() error {
-				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
-					Name:          pod.Name,
-					Namespace:     cfg.Cluster.Namespace,
-					Image:         cfg.Tools.FIO.Image,
-					PVCName:       pod.PVCName,
-					VolumeMode:    pod.VolumeMode,
-					Labels:        map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
-					Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
-					ContainerName: pod.ContainerName,
-				})
+					return k8s.CreatePod(podCtx, client, k8s.PodSpec{
+						Name:          pod.Name,
+						Namespace:     cfg.Cluster.Namespace,
+						Image:         activeImage(cfg),
+						PVCName:       pod.PVCName,
+						VolumeMode:    pod.VolumeMode,
+						Labels:        map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
+						Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
+						ContainerName: pod.ContainerName,
+					})
 			})
 		})
 	}

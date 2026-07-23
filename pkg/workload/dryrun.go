@@ -19,14 +19,14 @@ func DryRun(cfg *config.Config) error {
 		pvcName := fmt.Sprintf("%s-rbd-pvc-%d", cfg.Cluster.Prefix, i)
 		podName := fmt.Sprintf("%s-rbd-pod-%d", cfg.Cluster.Prefix, i)
 		emitPVCYAML(pvcName, cfg.Cluster.Namespace, cfg.Cluster.RBD.StorageClass, cfg.Cluster.PVCSize, volumeMode, accessMode, cfg.Cluster.Prefix)
-		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, cfg.Tools.FIO.Image, volumeMode, cfg.Cluster.Prefix)
+		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, activeImage(cfg), volumeMode, cfg.Cluster.Prefix)
 	}
 
 	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
 		pvcName := fmt.Sprintf("%s-cephfs-pvc-%d", cfg.Cluster.Prefix, i)
 		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i)
 		emitPVCYAML(pvcName, cfg.Cluster.Namespace, cfg.Cluster.CephFS.StorageClass, cfg.Cluster.PVCSize, "Filesystem", "ReadWriteMany", cfg.Cluster.Prefix)
-		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, cfg.Tools.FIO.Image, "Filesystem", cfg.Cluster.Prefix)
+		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, activeImage(cfg), "Filesystem", cfg.Cluster.Prefix)
 	}
 
 	return nil

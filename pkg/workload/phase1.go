@@ -15,6 +15,32 @@ import (
 )
 
 func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods []PodInfo, collector *report.Collector) error {
+	if cfg.Tools.Active == "vdbench" {
+		log.Println("=== PHASE 1: VDBENCH STRESS ===")
+
+		g, gCtx := errgroup.WithContext(ctx)
+		if cfg.Cluster.MaxParallelPods > 0 {
+			g.SetLimit(cfg.Cluster.MaxParallelPods)
+		}
+
+		for _, pod := range pods {
+			pod := pod
+			g.Go(func() error {
+				return runVdbenchOnPod(gCtx, cfg, client, pod, collector)
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			log.Printf("Phase 1 completed with errors: %v", err)
+		}
+
+		// Skip CephFS RWX sub-phase when active=vdbench
+
+		log.Println("=== PHASE 1 COMPLETE ===")
+		return nil
+	}
+
+	// existing FIO path
 	log.Println("=== PHASE 1: FIO STRESS ===")
 
 	g, gCtx := errgroup.WithContext(ctx)
