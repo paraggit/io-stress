@@ -73,6 +73,8 @@ func main() {
 	f.String("cephfs-storage-class", def.Cluster.CephFS.StorageClass, "CephFS StorageClass name")
 	f.String("pvc-size", def.Cluster.PVCSize, "PVC size")
 	f.StringP("image", "i", def.Tools.FIO.Image, "FIO container image")
+	f.String("tool", def.Tools.Active, "IO tool: fio or vdbench")
+	f.String("vdbench-image", def.Tools.VDBench.Image, "Vdbench container image")
 	f.IntP("runtime", "r", def.Tools.FIO.Runtime, "FIO runtime in seconds")
 	f.StringP("bs", "b", def.Tools.FIO.BlockSize, "FIO block size in bytes")
 	f.String("offset", def.Tools.FIO.Offset, "FIO offset in bytes")

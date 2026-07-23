@@ -82,6 +82,29 @@ func TestApplyChangedFlags_NoChangedFlags(t *testing.T) {
 	}
 }
 
+func TestApplyChangedFlags_ToolVdbench(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("tool", "fio", "")
+	fs.String("vdbench-image", "quay.io/pakamble/vdbench:latest", "")
+	_ = fs.Parse([]string{"--tool", "vdbench", "--vdbench-image", "custom/vdbench:tag"})
+
+	cfg := NewDefault()
+	if cfg.Tools.Active != "fio" {
+		t.Fatalf("default active=%q, want fio", cfg.Tools.Active)
+	}
+
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Tools.Active != "vdbench" {
+		t.Errorf("active=%q, want vdbench", cfg.Tools.Active)
+	}
+	if cfg.Tools.VDBench.Image != "custom/vdbench:tag" {
+		t.Errorf("vdbench image=%q, want custom/vdbench:tag", cfg.Tools.VDBench.Image)
+	}
+}
+
 func TestApplyChangedFlags_Sequential(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	fs.Bool("sequential", false, "")
