@@ -42,18 +42,12 @@ func main() {
 					return err
 				}
 				cfg = loaded
-				if len(cfg.Tools.VDBench) > 0 {
-					log.Printf("WARNING: tools.vdbench is set but not supported yet; ignoring")
-				}
 				if len(cfg.Tools.SmallFiles) > 0 {
 					log.Printf("WARNING: tools.smallfiles is set but not supported yet; ignoring")
 				}
 			}
 			if err := config.ApplyChangedFlags(cmd.Flags(), cfg); err != nil {
 				return err
-			}
-			if cfg.Cluster.SustainRuntime == 0 {
-				cfg.Cluster.SustainRuntime = cfg.Tools.FIO.Runtime * 3
 			}
 			if err := config.Validate(cfg); err != nil {
 				return err

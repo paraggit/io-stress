@@ -69,7 +69,7 @@ func executeVDBenchPattern(ctx context.Context, client *k8s.Client, pod PodInfo,
 	if containerName == "" {
 		containerName = "iotool"
 	}
-	
+
 	if err := k8s.WriteFileInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, containerName, paramPath, []byte(param)); err != nil {
 		result := report.JobResult{
 			Pod:        pod.Name,
@@ -90,7 +90,7 @@ func executeVDBenchPattern(ctx context.Context, client *k8s.Client, pod PodInfo,
 	// Execute VDBench command
 	outputDir := filepath.Join(cfg.Tools.VDBench.OutputDir, pod.Name, pattern.Name)
 	cmd := []string{"vdbench", "-f", paramPath, "-o", outputDir}
-	
+
 	stdout, stderr, exitCode, err := k8s.ExecInPod(ctx, client, cfg.Cluster.Namespace, pod.Name, containerName, cmd)
 	duration := time.Since(start)
 

@@ -18,6 +18,14 @@ import (
 )
 
 func Run(ctx context.Context, cfg *config.Config) error {
+	if cfg.Cluster.SustainRuntime == 0 {
+		if cfg.Tools.Active == "vdbench" {
+			cfg.Cluster.SustainRuntime = cfg.Tools.VDBench.Runtime * 3
+		} else {
+			cfg.Cluster.SustainRuntime = cfg.Tools.FIO.Runtime * 3
+		}
+	}
+
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
@@ -198,16 +206,16 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 		pod := pod
 		gPod.Go(func() error {
 			return k8s.Retry(func() error {
-					return k8s.CreatePod(podCtx, client, k8s.PodSpec{
-						Name:          pod.Name,
-						Namespace:     cfg.Cluster.Namespace,
-						Image:         activeImage(cfg),
-						PVCName:       pod.PVCName,
-						VolumeMode:    pod.VolumeMode,
-						Labels:        map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
-						Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
-						ContainerName: pod.ContainerName,
-					})
+				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
+					Name:          pod.Name,
+					Namespace:     cfg.Cluster.Namespace,
+					Image:         activeImage(cfg),
+					PVCName:       pod.PVCName,
+					VolumeMode:    pod.VolumeMode,
+					Labels:        map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
+					Privileged:    pod.VolumeMode == corev1.PersistentVolumeBlock,
+					ContainerName: pod.ContainerName,
+				})
 			})
 		})
 	}
