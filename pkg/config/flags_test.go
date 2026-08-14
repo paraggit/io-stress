@@ -29,8 +29,8 @@ func TestApplyChangedFlags(t *testing.T) {
 	if cfg.Cluster.RBD.NumPVC != 1 {
 		t.Errorf("rbd=%d, want 1", cfg.Cluster.RBD.NumPVC)
 	}
-	if cfg.Cluster.CephFS.NumPVC != 4 { // unchanged
-		t.Errorf("cephfs=%d, want 4", cfg.Cluster.CephFS.NumPVC)
+	if cfg.Cluster.CephFS.NumPVC != 0 {
+		t.Errorf("cephfs=%d, want 0 (--rbd-num-pvc alone disables CephFS)", cfg.Cluster.CephFS.NumPVC)
 	}
 	if cfg.Cluster.Kubeconfig != "/tmp/kc" {
 		t.Errorf("kubeconfig=%q, want /tmp/kc", cfg.Cluster.Kubeconfig)
@@ -54,12 +54,69 @@ func TestApplyChangedFlags_NumPVCOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// num-pvc sets both to 5, then rbd-num-pvc overrides RBD to 2
+	// num-pvc sets both to 5, then rbd-num-pvc overrides RBD to 2; CephFS stays 5
+	// because --num-pvc was also set (exclusive-backend zeroing does not apply).
 	if cfg.Cluster.RBD.NumPVC != 2 {
 		t.Errorf("rbd=%d, want 2", cfg.Cluster.RBD.NumPVC)
 	}
 	if cfg.Cluster.CephFS.NumPVC != 5 {
 		t.Errorf("cephfs=%d, want 5", cfg.Cluster.CephFS.NumPVC)
+	}
+}
+
+func TestApplyChangedFlags_RBDOnlyZerosCephFS(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Int("num-pvc", 4, "")
+	fs.Int("rbd-num-pvc", 4, "")
+	fs.Int("cephfs-num-pvc", 4, "")
+	_ = fs.Parse([]string{"--rbd-num-pvc", "2"})
+
+	cfg := NewDefault()
+	cfg.Cluster.CephFS.NumPVC = 6 // config had CephFS
+
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.RBD.NumPVC != 2 {
+		t.Errorf("rbd=%d, want 2", cfg.Cluster.RBD.NumPVC)
+	}
+	if cfg.Cluster.CephFS.NumPVC != 0 {
+		t.Errorf("cephfs=%d, want 0", cfg.Cluster.CephFS.NumPVC)
+	}
+}
+
+func TestApplyChangedFlags_CephFSOnlyZerosRBD(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Int("num-pvc", 4, "")
+	fs.Int("rbd-num-pvc", 4, "")
+	fs.Int("cephfs-num-pvc", 4, "")
+	_ = fs.Parse([]string{"--cephfs-num-pvc", "3"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.RBD.NumPVC != 0 {
+		t.Errorf("rbd=%d, want 0", cfg.Cluster.RBD.NumPVC)
+	}
+	if cfg.Cluster.CephFS.NumPVC != 3 {
+		t.Errorf("cephfs=%d, want 3", cfg.Cluster.CephFS.NumPVC)
+	}
+}
+
+func TestApplyChangedFlags_BothBackendsExplicit(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Int("num-pvc", 4, "")
+	fs.Int("rbd-num-pvc", 4, "")
+	fs.Int("cephfs-num-pvc", 4, "")
+	_ = fs.Parse([]string{"--rbd-num-pvc", "2", "--cephfs-num-pvc", "1"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.RBD.NumPVC != 2 || cfg.Cluster.CephFS.NumPVC != 1 {
+		t.Fatalf("rbd=%d cephfs=%d, want 2 and 1", cfg.Cluster.RBD.NumPVC, cfg.Cluster.CephFS.NumPVC)
 	}
 }
 
@@ -98,5 +155,21 @@ func TestApplyChangedFlags_Sequential(t *testing.T) {
 
 	if cfg.Tools.FIO.Parallel {
 		t.Error("sequential flag should set parallel=false")
+	}
+}
+
+func TestApplyChangedFlags_SequentialFalseOverridesConfig(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Bool("sequential", true, "")
+	_ = fs.Parse([]string{"--sequential=false"})
+
+	cfg := NewDefault()
+	cfg.Tools.FIO.Parallel = false // as if config disabled parallel
+
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Tools.FIO.Parallel {
+		t.Error("--sequential=false should set parallel=true")
 	}
 }

@@ -71,6 +71,11 @@ Run without `--config` uses built-in defaults (same effective behavior as before
 
 # Keep resources after the run
 ./odf-io-stress run --no-cleanup
+
+# Run with application workload profiles
+./odf-io-stress run --app-type nfs
+./odf-io-stress run --app-type vm,database
+./odf-io-stress run --app-type nfs,vm,database --runtime 120
 ```
 
 ### Generate config
@@ -101,6 +106,7 @@ cluster:
   pvc_size: 10Gi
   prefix: odf-io
   wait_timeout: 5m
+  app_types: [nfs, vm, database]  # optional, comma-separated in CLI
   # ... lifecycle, cleanup, sustain, etc.
 
 tools:
@@ -133,8 +139,8 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--config` | _(none)_ | Path to YAML (`.yaml`/`.yml`) or JSON (`.json`) config file |
 | `--kubeconfig` | _(default loading)_ | Path to kubeconfig (else `KUBECONFIG` or `~/.kube/config`) |
 | `-n, --num-pvc` | `4` | Set both RBD and CephFS PVC/pod counts |
-| `--rbd-num-pvc` | `4` | RBD PVC/pod pairs |
-| `--cephfs-num-pvc` | `4` | CephFS PVC/pod pairs |
+| `--rbd-num-pvc` | `4` | RBD PVC/pod pairs. If set alone (without `--cephfs-num-pvc` / `-n`), CephFS is set to `0` |
+| `--cephfs-num-pvc` | `4` | CephFS PVC/pod pairs. If set alone (without `--rbd-num-pvc` / `-n`), RBD is set to `0` |
 | `-N, --namespace` | `odf-io-stress` | Kubernetes namespace |
 | `--rbd-storage-class` | `ocs-storagecluster-ceph-rbd` | RBD StorageClass |
 | `--cephfs-storage-class` | `ocs-storagecluster-cephfs` | CephFS StorageClass |
@@ -157,6 +163,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--expand-factor` | `2` | PVC expand size multiplier |
 | `--snapshot-class` | _(auto)_ | Override VolumeSnapshotClass |
 | `--sustain-runtime` | `runtime*3` | Sustain workload duration (seconds) |
+| `--app-type` | _(none)_ | Comma-separated app profiles from `tools.fio.app_suites` (built-ins: `nfs`, `vm`, `database`, `messaging`, `ai`) |
 
 `generate-config` flags:
 
@@ -164,6 +171,81 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 |------|---------|-------------|
 | `-o, --output` | `odf-io-stress.yaml` | Output path (`-` for stdout) |
 | `--force` | `false` | Overwrite existing output file |
+
+## App-type workload profiles
+
+`--app-type` / `cluster.app_types` selects which FIO **profile suite(s)** to run. When set, those suites run on **every** RBD/CephFS PVC/pod created by `num_pvc` (standard suites and CephFS RWX are skipped). No extra dedicated app PVC is created.
+
+```bash
+# VM-like IO on all default PVCs (4 RBD + 4 CephFS)
+./odf-io-stress run --app-type vm --runtime 60
+
+# Same, but only 2 RBD volumes (no CephFS)
+./odf-io-stress run --app-type vm --rbd-num-pvc 2 --runtime 60
+
+# Multiple profiles: each pod runs nfs then database suites
+./odf-io-stress run --app-type nfs,database --rbd-num-pvc 2 --cephfs-num-pvc 2
+```
+
+| App type | Simulates | Suggested volume shape | IO patterns |
+|----------|-----------|------------------------|-------------|
+| `nfs` | NFS file server | Filesystem | Small-file metadata (4k fsync), large transfers, mixed sizes, sequential append |
+| `vm` | OpenShift Virtualization (CNV) | Block-oriented | virtio random IO, guest boot storm, live-migration pre-copy, snapshot commit, high QD |
+| `database` | PostgreSQL/MySQL-like | Filesystem | WAL fsync, random page reads, OLTP mixed, tablespace seq write, checkpoint flush |
+| `messaging` | Kafka/AMQ-like log IO | Filesystem | Append log writes, consumer random reads, burst mixed |
+| `ai` | Training checkpoint / dataset | Filesystem | Large seq checkpoint write, dataset seq read, shuffle random read |
+
+`volume_mode` on a profile is metadata for authors; runtime always applies the selected suite(s) to whatever PVCs you provisioned.
+
+### Onboarding a new FIO app profile (no code change)
+
+Add under `tools.fio.app_suites` in your config (or extend the sample from `generate-config`):
+
+```yaml
+cluster:
+  rbd:
+    num_pvc: 2
+  cephfs:
+    num_pvc: 0
+  app_types: [backup]
+tools:
+  fio:
+    app_suites:
+      backup:
+        volume_mode: Filesystem   # documentation hint; suite runs on all PVCs
+        patterns:
+          - name: backup-stream-seq-write
+            category: backup
+            params:
+              rw: write
+              bs: 1m
+              ioengine: libaio
+              direct: "1"
+              iodepth: "16"
+              time_based: "1"
+              group_reporting: "1"
+```
+
+Then:
+
+```bash
+./odf-io-stress run --config my.yaml
+```
+
+Built-in profiles remain available unless you override the same key. Pattern `params` are FIO-native flags (same model as `tools.fio.suites`).
+
+### Still missing for real ODF coverage (need more than FIO profiles)
+
+| Gap | Why FIO-only is insufficient |
+|-----|------------------------------|
+| Object / RGW / NooBaa | Needs S3 client workloads |
+| Real NFS-Ganesha / CSI NFS | Needs NFS mount + metadata tools (e.g. smallfiles) |
+| Real CNV VMs | Needs KubeVirt guests, not only block FIO |
+| Real databases / brokers | Needs pgbench/sysbench/kafka tools |
+| Encrypted StorageClass / KMS | Mostly SC + cluster setup; FIO can run on encrypted SC once provisioned |
+| Multi-attach beyond CephFS RWX | Needs CSI multi-attach orchestration |
+
+Those belong as future `tools.*` runners, not as `app_suites` entries.
 
 ## Test phases
 

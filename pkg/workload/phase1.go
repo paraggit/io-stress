@@ -16,6 +16,10 @@ import (
 
 func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods []PodInfo, collector *report.Collector) error {
 	log.Println("=== PHASE 1: FIO STRESS ===")
+	useAppTypes := len(cfg.Cluster.AppTypes) > 0
+	if useAppTypes {
+		log.Printf("App-type mode: running profile(s) %v on all %d PVC/pod(s)", cfg.Cluster.AppTypes, len(pods))
+	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 	if cfg.Cluster.MaxParallelPods > 0 {
@@ -25,6 +29,9 @@ func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods
 	for _, pod := range pods {
 		pod := pod
 		g.Go(func() error {
+			if useAppTypes {
+				return runAppTypesOnPod(gCtx, cfg, client, pod, collector)
+			}
 			return runFIOOnPod(gCtx, cfg, client, pod, collector)
 		})
 	}
@@ -32,8 +39,13 @@ func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods
 	if err := g.Wait(); err != nil {
 		log.Printf("Phase 1 completed with errors: %v", err)
 	}
+	// SIGTERM/cancel: stop cleanly instead of continuing into Phase 2/3.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-	if hasCephFS(pods) {
+	// CephFS RWX is part of the standard suite path only.
+	if !useAppTypes && hasCephFS(pods) {
 		if err := runCephFSRWXTests(ctx, cfg, client, pods, collector); err != nil {
 			log.Printf("CephFS RWX tests completed with errors: %v", err)
 		}
@@ -50,6 +62,26 @@ func hasCephFS(pods []PodInfo) bool {
 		}
 	}
 	return false
+}
+
+// runAppTypesOnPod runs every selected app-type suite on this pod (same profiles on all PVCs).
+func runAppTypesOnPod(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) error {
+	log.Printf("[%s] Running app-type workload(s): %v", pod.Name, cfg.Cluster.AppTypes)
+	for _, appType := range cfg.Cluster.AppTypes {
+		jobs := fio.AppTypeJobs(appType, cfg)
+		for _, job := range jobs {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			result := executeFIOJob(ctx, client, pod, job, cfg, collector)
+			if err := report.WriteJobFile(cfg.Cluster.ResultsDir, result); err != nil {
+				log.Printf("warning: failed to write job file: %v", err)
+			}
+		}
+	}
+	return nil
 }
 
 func runFIOOnPod(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) error {
@@ -98,12 +130,25 @@ func executeFIOJob(ctx context.Context, client *k8s.Client, pod PodInfo, job fio
 		log.Printf("[%s] FAIL %s (rc=%d, %v)", pod.Name, job.Name, exitCode, duration)
 	} else {
 		result.Status = "pass"
-		result.FIOOutput = json.RawMessage(stdout)
+		result.FIOOutput = fioOutputRaw(stdout)
 		log.Printf("[%s] PASS %s (%v)", pod.Name, job.Name, duration)
 	}
 
 	collector.Add(result)
 	return result
+}
+
+// fioOutputRaw stores FIO stdout as json.RawMessage. JSON (--format=json) is kept
+// as-is; non-JSON (--format=normal) is wrapped as a JSON string so report.json stays valid.
+func fioOutputRaw(stdout []byte) json.RawMessage {
+	if json.Valid(stdout) {
+		return json.RawMessage(append([]byte(nil), stdout...))
+	}
+	b, err := json.Marshal(string(stdout))
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(b)
 }
 
 func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Client, pods []PodInfo, collector *report.Collector) error {

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
@@ -72,8 +73,8 @@ func main() {
 	f.StringVar(&configPath, "config", "", "Path to YAML/JSON config file")
 	f.String("kubeconfig", def.Cluster.Kubeconfig, "Path to kubeconfig (default: KUBECONFIG or ~/.kube/config)")
 	f.IntP("num-pvc", "n", def.Cluster.RBD.NumPVC, "Set both RBD and CephFS PVC counts")
-	f.Int("rbd-num-pvc", def.Cluster.RBD.NumPVC, "Number of RBD PVC/pod pairs")
-	f.Int("cephfs-num-pvc", def.Cluster.CephFS.NumPVC, "Number of CephFS PVC/pod pairs")
+	f.Int("rbd-num-pvc", def.Cluster.RBD.NumPVC, "RBD PVC/pod pairs (alone: CephFS=0)")
+	f.Int("cephfs-num-pvc", def.Cluster.CephFS.NumPVC, "CephFS PVC/pod pairs (alone: RBD=0)")
 	f.StringP("namespace", "N", def.Cluster.Namespace, "Kubernetes namespace")
 	f.String("rbd-storage-class", def.Cluster.RBD.StorageClass, "RBD StorageClass name")
 	f.String("cephfs-storage-class", def.Cluster.CephFS.StorageClass, "CephFS StorageClass name")
@@ -96,6 +97,7 @@ func main() {
 	f.Int("sustain-runtime", def.Cluster.SustainRuntime, "Sustain workload duration (default: runtime*3)")
 	f.Int("max-parallel", def.Cluster.MaxParallelPods, "Max concurrent pods (0=unlimited)")
 	f.Bool("sequential", !def.Tools.FIO.Parallel, "Run FIO workloads sequentially")
+	f.String("app-type", "", "Comma-separated app workload profiles from tools.fio.app_suites (built-ins: "+strings.Join(config.ValidAppTypes(nil), ", ")+")")
 
 	genCmd := &cobra.Command{
 		Use:          "generate-config",

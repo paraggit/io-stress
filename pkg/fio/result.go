@@ -11,6 +11,7 @@ type FIOJobResult struct {
 	Error   int          `json:"error"`
 	Read    FIODirection `json:"read"`
 	Write   FIODirection `json:"write"`
+	Trim    FIODirection `json:"trim"`
 }
 
 type FIODirection struct {

@@ -50,6 +50,17 @@ func TestValidate(t *testing.T) {
 			c.Cluster.RBD.NumPVC = 0
 			c.Cluster.CephFS.NumPVC = 0
 		}, true},
+		{"app types without volumes invalid", func(c *Config) {
+			c.Cluster.RBD.NumPVC = 0
+			c.Cluster.CephFS.NumPVC = 0
+			c.Cluster.AppTypes = []string{"nfs"}
+		}, true},
+		{"app types with volumes ok", func(c *Config) {
+			c.Cluster.AppTypes = []string{"vm"}
+		}, false},
+		{"unknown app type", func(c *Config) {
+			c.Cluster.AppTypes = []string{"not-a-real-app"}
+		}, true},
 		{"rbd only ok", func(c *Config) { c.Cluster.CephFS.NumPVC = 0 }, false},
 		{"cephfs only ok", func(c *Config) { c.Cluster.RBD.NumPVC = 0 }, false},
 		{"empty namespace", func(c *Config) { c.Cluster.Namespace = "" }, true},

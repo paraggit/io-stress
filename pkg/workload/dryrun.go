@@ -29,6 +29,10 @@ func DryRun(cfg *config.Config) error {
 		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, cfg.Tools.FIO.Image, "Filesystem", cfg.Cluster.Prefix)
 	}
 
+	if len(cfg.Cluster.AppTypes) > 0 {
+		log.Printf("App-type mode: profiles %v will run on every PVC/pod above (no extra PVCs)", cfg.Cluster.AppTypes)
+	}
+
 	return nil
 }
 

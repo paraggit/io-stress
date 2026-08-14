@@ -45,7 +45,7 @@ func TestRetry_AllFail(t *testing.T) {
 	if err == nil {
 		t.Error("expected error, got nil")
 	}
-	if calls != 3 {
-		t.Errorf("called %d times, want 3", calls)
+	if calls != 4 {
+		t.Errorf("called %d times, want 4 (3 delays → 4 attempts)", calls)
 	}
 }
