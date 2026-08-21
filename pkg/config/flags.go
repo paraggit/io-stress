@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -103,9 +104,35 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	get("sequential", func() {
 		var seq bool
 		seq, err = fs.GetBool("sequential")
-		if err == nil && seq {
-			cfg.Tools.FIO.Parallel = false
+		if err == nil {
+			cfg.Tools.FIO.Parallel = !seq
 		}
 	})
+	get("app-type", func() {
+		var raw string
+		raw, err = fs.GetString("app-type")
+		if err == nil && raw != "" {
+			parts := strings.Split(raw, ",")
+			cfg.Cluster.AppTypes = cfg.Cluster.AppTypes[:0]
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					cfg.Cluster.AppTypes = append(cfg.Cluster.AppTypes, p)
+				}
+			}
+		}
+	})
+
+	// Backend-only CLI: mentioning one side without the other (and without --num-pvc)
+	// means "only that backend" — zero the unspecified side.
+	if err == nil && !fs.Changed("num-pvc") {
+		if fs.Changed("rbd-num-pvc") && !fs.Changed("cephfs-num-pvc") {
+			cfg.Cluster.CephFS.NumPVC = 0
+		}
+		if fs.Changed("cephfs-num-pvc") && !fs.Changed("rbd-num-pvc") {
+			cfg.Cluster.RBD.NumPVC = 0
+		}
+	}
+
 	return err
 }

@@ -42,3 +42,8 @@ func ReducedSuite(target string, cfg *config.Config) []Job {
 func CephFSRWXJobs(cfg *config.Config) []Job {
 	return PatternsToJobs(cfg.Tools.FIO.Suites.CephFSRWX, cfg.Tools.FIO)
 }
+
+func AppTypeJobs(appType string, cfg *config.Config) []Job {
+	patterns := config.AppSuitePatterns(cfg, appType)
+	return PatternsToJobs(patterns, cfg.Tools.FIO)
+}

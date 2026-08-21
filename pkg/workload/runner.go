@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -99,6 +100,9 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 	totalRBD := cfg.Cluster.RBD.NumPVC
 	totalCephFS := cfg.Cluster.CephFS.NumPVC
 	log.Printf("Creating %d PVCs (%d RBD + %d CephFS)", totalRBD+totalCephFS, totalRBD, totalCephFS)
+	if len(cfg.Cluster.AppTypes) > 0 {
+		log.Printf("App-type mode enabled: %v (same suite(s) on every PVC/pod)", cfg.Cluster.AppTypes)
+	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -193,6 +197,10 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 	for _, pod := range allPods {
 		pod := pod
 		gPod.Go(func() error {
+			labels := map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType}
+			if len(cfg.Cluster.AppTypes) > 0 {
+				labels["app-types"] = strings.Join(cfg.Cluster.AppTypes, ",")
+			}
 			return k8s.Retry(func() error {
 				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
 					Name:       pod.Name,
@@ -200,7 +208,7 @@ func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client)
 					Image:      cfg.Tools.FIO.Image,
 					PVCName:    pod.PVCName,
 					VolumeMode: pod.VolumeMode,
-					Labels:     map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
+					Labels:     labels,
 					Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
 				})
 			})

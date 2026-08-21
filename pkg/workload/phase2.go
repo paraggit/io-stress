@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -373,13 +371,19 @@ func accessModesForPod(pod PodInfo) []corev1.PersistentVolumeAccessMode {
 }
 
 func computeExpandedSize(original string, factor int) (string, error) {
-	numStr := strings.TrimRight(original, "GiMiTiKi")
-	unit := original[len(numStr):]
-	num, err := strconv.Atoi(numStr)
+	if factor < 1 {
+		return "", fmt.Errorf("expand factor must be >= 1, got %d", factor)
+	}
+	q, err := resource.ParseQuantity(original)
 	if err != nil {
 		return "", fmt.Errorf("parse PVC size %q: %w", original, err)
 	}
-	return fmt.Sprintf("%d%s", num*factor, unit), nil
+	bytes := q.Value()
+	if factor > 1 && bytes > (1<<63-1)/int64(factor) {
+		return "", fmt.Errorf("overflow expanding %q by %d", original, factor)
+	}
+	scaled := resource.NewQuantity(bytes*int64(factor), q.Format)
+	return scaled.String(), nil
 }
 
 // sizeForCloneOrRestore picks a size >= the source PVC. Clone/restore run

@@ -28,6 +28,7 @@ type Cluster struct {
 	MaxParallelPods   int      `yaml:"max_parallel_pods" json:"max_parallel_pods"`
 	ResultsDir        string   `yaml:"results_dir" json:"results_dir"`
 	SustainRuntime    int      `yaml:"sustain_runtime" json:"sustain_runtime"`
+	AppTypes          []string `yaml:"app_types,omitempty" json:"app_types,omitempty"`
 }
 
 type Backend struct {
@@ -42,14 +43,15 @@ type Tools struct {
 }
 
 type FIO struct {
-	Image        string `yaml:"image" json:"image"`
-	Runtime      int    `yaml:"runtime" json:"runtime"`
-	Size         string `yaml:"size" json:"size"`
-	BlockSize    string `yaml:"block_size" json:"block_size"`
-	Offset       string `yaml:"offset" json:"offset"`
-	OutputFormat string `yaml:"output_format" json:"output_format"`
-	Parallel     bool   `yaml:"parallel" json:"parallel"`
-	Suites       Suites `yaml:"suites" json:"suites"`
+	Image        string                `yaml:"image" json:"image"`
+	Runtime      int                   `yaml:"runtime" json:"runtime"`
+	Size         string                `yaml:"size" json:"size"`
+	BlockSize    string                `yaml:"block_size" json:"block_size"`
+	Offset       string                `yaml:"offset" json:"offset"`
+	OutputFormat string                `yaml:"output_format" json:"output_format"`
+	Parallel     bool                  `yaml:"parallel" json:"parallel"`
+	Suites       Suites                `yaml:"suites" json:"suites"`
+	AppSuites    map[string]AppProfile `yaml:"app_suites,omitempty" json:"app_suites,omitempty"`
 }
 
 type Suites struct {
@@ -97,13 +99,18 @@ func NewDefault() *Config {
 				OutputFormat: "json",
 				Parallel:     true,
 				Suites:       defaultSuites(),
+				AppSuites:    defaultAppSuites(),
 			},
 		},
 	}
 }
 
 func Validate(cfg *Config) error {
-	if cfg.Cluster.RBD.NumPVC+cfg.Cluster.CephFS.NumPVC < 1 {
+	MergeAppSuites(cfg)
+
+	hasStandard := cfg.Cluster.RBD.NumPVC > 0 || cfg.Cluster.CephFS.NumPVC > 0
+	hasAppTypes := len(cfg.Cluster.AppTypes) > 0
+	if !hasStandard {
 		return fmt.Errorf("at least one of rbd.num_pvc or cephfs.num_pvc must be >= 1")
 	}
 	if cfg.Cluster.Namespace == "" {
@@ -127,8 +134,8 @@ func Validate(cfg *Config) error {
 	if cfg.Cluster.ExpandFactor < 1 {
 		return fmt.Errorf("expand-factor must be >= 1, got %d", cfg.Cluster.ExpandFactor)
 	}
-	// Validate empty FIO suites when stress not skipped
-	if !cfg.Cluster.SkipFIOStress && (cfg.Cluster.RBD.NumPVC > 0 || cfg.Cluster.CephFS.NumPVC > 0) {
+	// Standard suites are used only when app_types is empty.
+	if !cfg.Cluster.SkipFIOStress && !hasAppTypes && hasStandard {
 		if len(cfg.Tools.FIO.Suites.Common) == 0 {
 			return fmt.Errorf("when skip_fio_stress is false and volumes will be created, at least one common FIO pattern must be defined")
 		}
@@ -146,6 +153,10 @@ func Validate(cfg *Config) error {
 		if p.Name == "" {
 			return fmt.Errorf("pattern name must not be empty")
 		}
+	}
+
+	if err := validateAppTypes(cfg); err != nil {
+		return err
 	}
 	return nil
 }

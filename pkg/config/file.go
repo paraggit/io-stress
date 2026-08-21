@@ -28,6 +28,7 @@ func Load(path string) (*Config, error) {
 	default:
 		return nil, fmt.Errorf("unsupported config extension %q (use .yaml, .yml, or .json)", ext)
 	}
+	MergeAppSuites(cfg)
 	return cfg, nil
 }
 
