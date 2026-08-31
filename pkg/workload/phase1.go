@@ -101,6 +101,12 @@ func runFIOOnPod(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 }
 
 func executeFIOJob(ctx context.Context, client *k8s.Client, pod PodInfo, job fio.Job, cfg *config.Config, collector *report.Collector) report.JobResult {
+	result := runFIOJob(ctx, client, pod, job, cfg)
+	collector.Add(result)
+	return result
+}
+
+func runFIOJob(ctx context.Context, client *k8s.Client, pod PodInfo, job fio.Job, cfg *config.Config) report.JobResult {
 	log.Printf("[%s] Running %s", pod.Name, job.Name)
 	start := time.Now()
 
@@ -133,8 +139,6 @@ func executeFIOJob(ctx context.Context, client *k8s.Client, pod PodInfo, job fio
 		result.FIOOutput = fioOutputRaw(stdout)
 		log.Printf("[%s] PASS %s (%v)", pod.Name, job.Name, duration)
 	}
-
-	collector.Add(result)
 	return result
 }
 

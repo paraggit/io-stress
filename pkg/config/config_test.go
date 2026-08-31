@@ -37,6 +37,9 @@ func TestNewDefault(t *testing.T) {
 	if cfg.Cluster.MaxParallelProvision != 4 {
 		t.Errorf("MaxParallelProvision = %d, want 4", cfg.Cluster.MaxParallelProvision)
 	}
+	if cfg.Cluster.SeedSize != "512m" {
+		t.Errorf("SeedSize = %q, want 512m", cfg.Cluster.SeedSize)
+	}
 	if !cfg.Tools.FIO.Parallel {
 		t.Error("Parallel should default true")
 	}
@@ -107,6 +110,9 @@ func TestValidate(t *testing.T) {
 		{"zero max parallel provision ok", func(c *Config) {
 			c.Cluster.MaxParallelProvision = 0
 		}, false},
+		{"empty seed size", func(c *Config) {
+			c.Cluster.SeedSize = ""
+		}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

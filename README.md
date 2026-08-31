@@ -106,6 +106,7 @@ cluster:
   pvc_size: 10Gi
   prefix: odf-io
   wait_timeout: 5m
+  seed_size: 512m   # Block integrity seed/verify extent (see Data integrity verify)
   app_types: [nfs, vm, database]  # optional, comma-separated in CLI
   # ... lifecycle, cleanup, sustain, etc.
 
@@ -150,6 +151,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `-b, --bs` | `512` | FIO block size |
 | `--offset` | `512` | FIO offset |
 | `--fio-size` | `1G` | FIO file/device size |
+| `--seed-size` | `512m` | Block integrity seed/verify extent (sequential, not time-based) |
 | `-p, --prefix` | `odf-io` | Resource name prefix |
 | `-t, --timeout` | `5m` | Wait timeout for PVC/pod readiness |
 | `-f, --format` | `json` | FIO output format (`json`, `normal`) |
@@ -250,8 +252,29 @@ Those belong as future `tools.*` runners, not as `app_suites` entries.
 ## Test phases
 
 1. **FIO stress** — Unaligned IO, object-boundary writes, mixed block sizes, integrity checks, and backend-specific jobs (RBD block / CephFS filesystem, including RWX where applicable).
-2. **Lifecycle storm** — PVC expand, clone, and snapshot/restore on a subset of pods (controlled by `--lifecycle-interval`).
-3. **Data integrity verify** — FIO verify against clone and restored volumes.
+2. **Lifecycle storm** — PVC expand, clone, and snapshot/restore on a subset of pods (controlled by `--lifecycle-interval`). Before clone/snapshot, the source is sequentially seeded for later verify.
+3. **Data integrity verify** — FIO `verify_only` against clone and restored volumes, covering **exactly** the seeded extent.
+
+### Block vs Filesystem data-integrity
+
+On **Filesystem** volumes the seed and verify target a dedicated file (`/mnt/data/fio.dat`) sized to `tools.fio.size` / `--fio-size`. Fio creates that file, writes it sequentially, and verify cannot see leftover phase-1 IO.
+
+On **Block** volumes (raw RBD, `/dev/rbdblock`) there is no private file: the clone inherits the entire device, including phase-1 4 KiB verify headers, non-verify writes, and unwritten zeros. The harness therefore:
+
+- Sequentially seeds a **bounded region** from offset 0 (`cluster.seed_size` / `--seed-size`, default `512m`) with a single block size (`256k`), `--rw=write`, `--verify=crc32c`, **no** `--time_based` / `--runtime`.
+- Runs `phase3-verify` as `--rw=read --verify_only=1` with the **same** `--bs` and `--size`.
+
+**Invariant:** the integrity verify never reads a region or block size the seed did not deterministically write. Violating that produces false-positive `bad magic header` / `bad header length` / `crc32c verify failed` errors that are **not** storage-product faults.
+
+### Troubleshooting false-positive verify errors
+
+| Symptom | Likely harness cause |
+|---------|----------------------|
+| `verify: bad magic header 0, wanted acca` at offset 0 | Seed was random/`time_based` (or truncated) so the start of the device was never written |
+| `verify: bad header length 4096, wanted 262144` | Verify `--size`/`--bs` larger than the sequential seed; leftover phase-1 4 KiB headers |
+| `crc32c: verify failed` on Block only | Verify walked past the seeded extent into mixed phase-1 data |
+
+If `integrity-seed` reports pass but `phase3-verify` fails on Block, check that seed `write.io_bytes >= seed_size` and that both jobs share `bs`/`size`.
 
 ## Results
 

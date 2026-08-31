@@ -1,6 +1,7 @@
 package workload
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/red-hat-storage/odf-io-stress/pkg/config"
 	"github.com/red-hat-storage/odf-io-stress/pkg/k8s"
 	"github.com/red-hat-storage/odf-io-stress/pkg/report"
 )
@@ -129,6 +131,34 @@ func TestRecordBoundWait_ProvisionTimeoutIsSlow(t *testing.T) {
 	}
 	if !strings.Contains(results[0].Error, "phase=Pending") {
 		t.Errorf("error should capture CSI state, got %q", results[0].Error)
+	}
+}
+
+func TestAssertSeedCoverage_ShortWriteFails(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Cluster.SeedSize = "512m"
+	result := report.JobResult{
+		Status:    "pass",
+		FIOOutput: json.RawMessage(`{"jobs":[{"jobname":"integrity-seed","write":{"io_bytes":1024}}]}`),
+	}
+	err := assertSeedCoverage(result, cfg, "Block")
+	if err == nil {
+		t.Fatal("expected coverage failure for short write")
+	}
+	if !strings.Contains(err.Error(), "wrote 1024") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestAssertSeedCoverage_FullWriteOK(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Cluster.SeedSize = "512m"
+	result := report.JobResult{
+		Status:    "pass",
+		FIOOutput: json.RawMessage(`{"jobs":[{"jobname":"integrity-seed","write":{"io_bytes":536870912}}]}`),
+	}
+	if err := assertSeedCoverage(result, cfg, "Block"); err != nil {
+		t.Fatal(err)
 	}
 }
 

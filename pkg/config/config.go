@@ -30,6 +30,7 @@ type Cluster struct {
 	MaxParallelProvision int      `yaml:"max_parallel_provision" json:"max_parallel_provision"`
 	ResultsDir           string   `yaml:"results_dir" json:"results_dir"`
 	SustainRuntime       int      `yaml:"sustain_runtime" json:"sustain_runtime"`
+	SeedSize             string   `yaml:"seed_size" json:"seed_size"`
 	AppTypes             []string `yaml:"app_types,omitempty" json:"app_types,omitempty"`
 }
 
@@ -92,6 +93,7 @@ func NewDefault() *Config {
 			ExpandFactor:         2,
 			SustainRuntime:       180,
 			MaxParallelProvision: 4,
+			SeedSize:             "512m",
 		},
 		Tools: Tools{
 			FIO: FIO{
@@ -143,6 +145,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Cluster.MaxParallelProvision < 0 {
 		return fmt.Errorf("max-parallel-provision must be >= 0, got %d", cfg.Cluster.MaxParallelProvision)
+	}
+	if cfg.Cluster.SeedSize == "" {
+		return fmt.Errorf("seed-size must not be empty")
 	}
 	// Standard suites are used only when app_types is empty.
 	if !cfg.Cluster.SkipFIOStress && !hasAppTypes && hasStandard {

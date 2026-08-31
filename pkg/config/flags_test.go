@@ -177,6 +177,20 @@ func TestApplyChangedFlags_CloneTimeoutAndProvisionLimit(t *testing.T) {
 	}
 }
 
+func TestApplyChangedFlags_SeedSize(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("seed-size", "", "")
+	_ = fs.Parse([]string{"--seed-size", "256m"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.SeedSize != "256m" {
+		t.Errorf("SeedSize = %q, want 256m", cfg.Cluster.SeedSize)
+	}
+}
+
 func TestApplyChangedFlags_SequentialFalseOverridesConfig(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	fs.Bool("sequential", true, "")

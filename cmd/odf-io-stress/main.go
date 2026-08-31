@@ -84,6 +84,7 @@ func main() {
 	f.StringP("bs", "b", def.Tools.FIO.BlockSize, "FIO block size in bytes")
 	f.String("offset", def.Tools.FIO.Offset, "FIO offset in bytes")
 	f.String("fio-size", def.Tools.FIO.Size, "FIO file/device size")
+	f.String("seed-size", def.Cluster.SeedSize, "Block integrity seed/verify extent (sequential, non-time-based)")
 	f.StringP("prefix", "p", def.Cluster.Prefix, "Resource name prefix")
 	f.DurationP("timeout", "t", def.Cluster.WaitTimeout.Duration(), "Wait timeout for PVC/pod readiness")
 	f.Duration("clone-timeout", def.Cluster.CloneTimeout.Duration(), "Timeout for clone/restore PVC Bound waits (CephFS; RBD uses --timeout)")
