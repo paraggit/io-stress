@@ -1,6 +1,7 @@
 package fio
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
@@ -229,6 +230,55 @@ func assertIntegrityPair(t *testing.T, seed, verify Job, wantSize string) {
 	if !containsArg(seed.Args, "--verify=crc32c") || !containsArg(verify.Args, "--verify=crc32c") {
 		t.Error("seed and verify must use crc32c")
 	}
+}
+
+func TestExpandVerifyBlockJob_ConfinedPastSeed(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Cluster.SeedSize = "512m"
+	cfg.Tools.FIO.Runtime = 60
+
+	job, err := ExpandVerifyBlockJob(cfg, "10Gi", "20Gi", cfg.Tools.FIO.Runtime/2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.Name != "expand-verify" {
+		t.Errorf("name = %q, want expand-verify", job.Name)
+	}
+
+	// Offset must start past both the seeded extent (512m) and the original
+	// request (10Gi) -> the larger, 10Gi, so the concurrent clone's
+	// integrity-seeded [0,512m) region is never clobbered.
+	wantOffset := int64(10) << 30
+	wantSize := (int64(20) << 30) - wantOffset
+	if got := argValue(job.Args, "--offset="); got != int64Str(wantOffset) {
+		t.Errorf("--offset = %q, want %d", got, wantOffset)
+	}
+	if got := argValue(job.Args, "--size="); got != int64Str(wantSize) {
+		t.Errorf("--size = %q, want %d", got, wantSize)
+	}
+
+	// The write window [offset, offset+size) must never reach into [0, seedSize).
+	off, _ := SizeBytes(argValue(job.Args, "--offset="))
+	seedBytes, _ := SizeBytes(cfg.Cluster.SeedSize)
+	if off < seedBytes {
+		t.Errorf("expand-verify offset %d intrudes on seed extent %d", off, seedBytes)
+	}
+	if !containsArg(job.Args, "--verify=crc32c") {
+		t.Errorf("expand-verify must verify crc32c, got %v", job.Args)
+	}
+}
+
+func TestExpandVerifyBlockJob_NoHeadroomErrors(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Cluster.SeedSize = "512m"
+	// No expansion: expanded == original -> no room past the seed.
+	if _, err := ExpandVerifyBlockJob(cfg, "10Gi", "10Gi", 30); err == nil {
+		t.Fatal("expected error when expansion adds no room past seed")
+	}
+}
+
+func int64Str(n int64) string {
+	return fmt.Sprintf("%d", n)
 }
 
 func argValue(args []string, prefix string) string {

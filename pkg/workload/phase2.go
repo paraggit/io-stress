@@ -422,40 +422,43 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 func runExpandVerify(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, expandedSize string, collector *report.Collector, rt *lifecycleRuntime) {
 	rt.quiesceSustain()
 
-	writeSize := expandedSize
-	expandJob := fio.Job{
-		Name:     "expand-verify",
-		Category: "lifecycle",
-		Args: []string{
-			"--rw=randwrite", "--bs=4k",
-			fmt.Sprintf("--size=%s", writeSize),
-			"--ioengine=libaio", "--direct=1", "--iodepth=16",
-			"--time_based=1", fmt.Sprintf("--runtime=%d", cfg.Tools.FIO.Runtime/2),
-			"--verify=crc32c", "--verify_backlog=128",
-			"--verify_fatal=1", "--group_reporting=1",
-		},
-	}
-
 	if pod.StorageType == "cephfs" {
+		// Filesystem: write a dedicated headroom-sized file so the quota-bound
+		// write never collides with existing data.
 		avail := queryDFAvail(ctx, client, cfg.Cluster.Namespace, pod.Name, "/mnt/data")
-		sized, err := computeExpandVerifyWriteSize(cfg.Cluster.PVCSize, expandedSize, avail, pod.StorageType)
+		writeSize, err := computeExpandVerifyWriteSize(cfg.Cluster.PVCSize, expandedSize, avail, pod.StorageType)
 		if err != nil {
 			log.Printf("[%s] SKIP: EXPAND: no headroom for expand-verify: %v", pod.Name, err)
 			collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-verify", Category: "lifecycle", Status: "skip", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 			return
 		}
-		writeSize = sized
-		expandJob.Filename = "/mnt/data/expand-verify.dat"
-		expandJob.Args = []string{
-			"--rw=write", "--bs=256k",
-			fmt.Sprintf("--size=%s", writeSize),
-			"--ioengine=libaio", "--direct=1", "--iodepth=16",
-			"--verify=crc32c", "--do_verify=0",
-			"--group_reporting=1",
+		expandJob := fio.Job{
+			Name:     "expand-verify",
+			Category: "lifecycle",
+			Filename: "/mnt/data/expand-verify.dat",
+			Args: []string{
+				"--rw=write", "--bs=256k",
+				fmt.Sprintf("--size=%s", writeSize),
+				"--ioengine=libaio", "--direct=1", "--iodepth=16",
+				"--verify=crc32c", "--do_verify=0",
+				"--group_reporting=1",
+			},
 		}
 		log.Printf("[%s] EXPAND: CephFS verify write size %s (avail=%d)", pod.Name, writeSize, avail)
+		executeFIOJob(ctx, client, pod, expandJob, cfg, collector)
+		return
 	}
 
+	// Block/RBD: raw device, no file isolation. Confine the verify write to the
+	// region the volume grew into so it never clobbers the integrity-seeded
+	// [0,seedSize) blocks a concurrent clone is COW-copying (see phase3-verify).
+	expandJob, err := fio.ExpandVerifyBlockJob(cfg, cfg.Cluster.PVCSize, expandedSize, cfg.Tools.FIO.Runtime/2)
+	if err != nil {
+		log.Printf("[%s] SKIP: EXPAND: %v", pod.Name, err)
+		collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-verify", Category: "lifecycle", Status: "skip", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
+		return
+	}
+	log.Printf("[%s] EXPAND: Block verify write confined to grown region past seed", pod.Name)
 	executeFIOJob(ctx, client, pod, expandJob, cfg, collector)
 }
 

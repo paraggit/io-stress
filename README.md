@@ -263,8 +263,9 @@ On **Block** volumes (raw RBD, `/dev/rbdblock`) there is no private file: the cl
 
 - Sequentially seeds a **bounded region** from offset 0 (`cluster.seed_size` / `--seed-size`, default `512m`) with a single block size (`256k`), `--rw=write`, `--verify=crc32c`, **no** `--time_based` / `--runtime`.
 - Runs `phase3-verify` as `--rw=read --verify_only=1` with the **same** `--bs` and `--size`.
+- Confines the concurrent **`expand-verify`** write to the region the volume *grew into* (`--offset=max(pvc_size, seed_size)`, `--size=expanded−offset`). On Block the expand runs on the raw device *while a clone is being COW-copied*, so an unconstrained 4k randwrite over `[0, seed_size)` would clobber the seeded blocks the clone captures and make `phase3-verify` fail on the clone. Filesystem volumes keep writing a dedicated headroom-sized file (`/mnt/data/expand-verify.dat`) instead.
 
-**Invariant:** the integrity verify never reads a region or block size the seed did not deterministically write. Violating that produces false-positive `bad magic header` / `bad header length` / `crc32c verify failed` errors that are **not** storage-product faults.
+**Invariant:** the integrity verify never reads a region or block size the seed did not deterministically write, and no concurrent writer (sustain, expand-verify) touches the seeded `[0, seed_size)` extent on Block. Violating that produces false-positive `bad magic header` / `bad header length` / `crc32c verify failed` errors that are **not** storage-product faults.
 
 ### Troubleshooting false-positive verify errors
 
