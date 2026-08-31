@@ -104,6 +104,55 @@ func IntegrityVerifyJob(cfg *config.Config, volumeMode string) Job {
 	}
 }
 
+// ExpandVerifyBlockJob builds the Block/RBD expand-verify job. A raw block
+// device is shared with the integrity seed ([0,seedSize)) and all phase-1 IO,
+// and a clone is COW-copied concurrently with this write. So the verify write
+// must be confined to the region the volume *grew into* (past both the seed and
+// the original request) — otherwise a 4k randwrite here clobbers the seeded
+// [0,seedSize) blocks that the concurrent clone captures, and phase3-verify then
+// reports false "bad header length"/"crc32c verify failed" on the clone.
+// Returns an error if the expansion added no usable room past the seed.
+func ExpandVerifyBlockJob(cfg *config.Config, originalSize, expandedSize string, runtime int) (Job, error) {
+	seed := blockSeedSize(cfg)
+	seedBytes, err := SizeBytes(seed)
+	if err != nil {
+		return Job{}, fmt.Errorf("seed size %q: %w", seed, err)
+	}
+	origBytes, err := SizeBytes(originalSize)
+	if err != nil {
+		return Job{}, fmt.Errorf("original size %q: %w", originalSize, err)
+	}
+	expBytes, err := SizeBytes(expandedSize)
+	if err != nil {
+		return Job{}, fmt.Errorf("expanded size %q: %w", expandedSize, err)
+	}
+	// Start past whichever is larger: the seeded extent or the original request.
+	offset := seedBytes
+	if origBytes > offset {
+		offset = origBytes
+	}
+	writeBytes := expBytes - offset
+	if writeBytes <= 0 {
+		return Job{}, fmt.Errorf("expand-verify: no room past seed (expanded=%d offset=%d)", expBytes, offset)
+	}
+	if runtime < 1 {
+		runtime = 1
+	}
+	return Job{
+		Name:     "expand-verify",
+		Category: "lifecycle",
+		Args: []string{
+			"--rw=randwrite", "--bs=4k",
+			fmt.Sprintf("--offset=%d", offset),
+			fmt.Sprintf("--size=%d", writeBytes),
+			"--ioengine=libaio", "--direct=1", "--iodepth=16",
+			"--time_based=1", fmt.Sprintf("--runtime=%d", runtime),
+			"--verify=crc32c", "--verify_backlog=128",
+			"--verify_fatal=1", "--group_reporting=1",
+		},
+	}, nil
+}
+
 func BuildArgs(j Job, target string, outputFormat string) []string {
 	filename := target
 	if j.Filename != "" {
