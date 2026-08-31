@@ -24,6 +24,7 @@ type PhaseSummary struct {
 	Passed  int `json:"passed"`
 	Failed  int `json:"failed"`
 	Skipped int `json:"skipped"`
+	Slow    int `json:"slow,omitempty"`
 }
 
 type Summary struct {
@@ -31,6 +32,7 @@ type Summary struct {
 	Passed    int          `json:"passed"`
 	Failed    int          `json:"failed"`
 	Skipped   int          `json:"skipped"`
+	Slow      int          `json:"slow,omitempty"`
 	Phase1    PhaseSummary `json:"phase1"`
 	Lifecycle PhaseSummary `json:"lifecycle"`
 }
@@ -84,6 +86,9 @@ func ComputeSummary(results []JobResult) Summary {
 		case "skip":
 			s.Skipped++
 			ps.Skipped++
+		case "slow", "retryable":
+			s.Slow++
+			ps.Slow++
 		}
 	}
 	return s

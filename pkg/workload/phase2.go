@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -15,6 +18,40 @@ import (
 	"github.com/red-hat-storage/odf-io-stress/pkg/k8s"
 	"github.com/red-hat-storage/odf-io-stress/pkg/report"
 )
+
+const expandVerifyMargin int64 = 256 * 1024 * 1024 // 256Mi safety margin on CephFS quota
+
+type lifecycleRuntime struct {
+	provision     *semaphore.Weighted
+	sustainCancel context.CancelFunc
+	sustainDone   <-chan struct{}
+}
+
+func (r *lifecycleRuntime) acquireProvision(ctx context.Context) error {
+	if r == nil || r.provision == nil {
+		return nil
+	}
+	return r.provision.Acquire(ctx, 1)
+}
+
+func (r *lifecycleRuntime) releaseProvision() {
+	if r == nil || r.provision == nil {
+		return
+	}
+	r.provision.Release(1)
+}
+
+func (r *lifecycleRuntime) quiesceSustain() {
+	if r == nil {
+		return
+	}
+	if r.sustainCancel != nil {
+		r.sustainCancel()
+	}
+	if r.sustainDone != nil {
+		<-r.sustainDone
+	}
+}
 
 func runPhase2(ctx context.Context, cfg *config.Config, client *k8s.Client, readyPods []PodInfo, collector *report.Collector) error {
 	log.Println("═══ PHASE 2: LIFECYCLE STORM ═══")
@@ -53,6 +90,8 @@ func runPhase2(ctx context.Context, cfg *config.Config, client *k8s.Client, read
 		g.SetLimit(1)
 	}
 
+	provision := semaphore.NewWeighted(cfg.Cluster.ProvisionLimit())
+
 	for _, pod := range lifecyclePods {
 		pod := pod
 		snapClass := rbdSnapClass
@@ -60,7 +99,7 @@ func runPhase2(ctx context.Context, cfg *config.Config, client *k8s.Client, read
 			snapClass = cephfsSnapClass
 		}
 		g.Go(func() error {
-			runLifecycleOnPod(ctx, cfg, client, pod, snapClass, collector)
+			runLifecycleOnPod(ctx, cfg, client, pod, snapClass, collector, provision)
 			return nil
 		})
 	}
@@ -70,26 +109,84 @@ func runPhase2(ctx context.Context, cfg *config.Config, client *k8s.Client, read
 	return nil
 }
 
-func runLifecycleOnPod(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, snapClass string, collector *report.Collector) {
+func runLifecycleOnPod(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, snapClass string, collector *report.Collector, provision *semaphore.Weighted) {
 	log.Printf("[%s] Starting lifecycle storm", pod.Name)
 
+	if err := seedIntegrity(ctx, cfg, client, pod, collector); err != nil {
+		log.Printf("[%s] FAIL: integrity seed: %v — skipping clone/snapshot/expand", pod.Name, err)
+		return
+	}
+
 	sustainCtx, sustainCancel := context.WithCancel(ctx)
-	go startSustainWorkload(sustainCtx, client, cfg, pod)
+	sustainDone := make(chan struct{})
+	go func() {
+		defer close(sustainDone)
+		startSustainWorkload(sustainCtx, client, cfg, pod)
+	}()
+
+	rt := &lifecycleRuntime{
+		provision:     provision,
+		sustainCancel: sustainCancel,
+		sustainDone:   sustainDone,
+	}
 
 	g, gCtx := errgroup.WithContext(ctx)
-	g.Go(func() error { runCloneOps(gCtx, cfg, client, pod, collector); return nil })
-	g.Go(func() error { runSnapshotOps(gCtx, cfg, client, pod, snapClass, collector); return nil })
-	g.Go(func() error { runExpandOps(gCtx, cfg, client, pod, collector); return nil })
+	g.Go(func() error { runCloneOps(gCtx, cfg, client, pod, collector, rt); return nil })
+	g.Go(func() error { runSnapshotOps(gCtx, cfg, client, pod, snapClass, collector, rt); return nil })
+	g.Go(func() error { runExpandOps(gCtx, cfg, client, pod, collector, rt); return nil })
 	g.Wait()
 
-	sustainCancel()
+	rt.quiesceSustain()
 
 	runRescheduleOps(ctx, cfg, client, pod, collector)
 
 	log.Printf("[%s] Lifecycle storm complete", pod.Name)
 }
 
-func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
+func seedIntegrity(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) error {
+	result := executeFIOJob(ctx, client, pod, fio.IntegritySeedJob(cfg), cfg, collector)
+	if result.Status != "pass" {
+		if result.Error != "" {
+			return fmt.Errorf("%s", result.Error)
+		}
+		return fmt.Errorf("integrity-seed status %s", result.Status)
+	}
+	return nil
+}
+
+func recordBoundWait(resultPod string, pod PodInfo, job string, err error, collector *report.Collector) {
+	status := "fail"
+	if k8s.IsProvisionTimeout(err) {
+		status = "slow"
+		log.Printf("[%s] SLOW: %s (retryable under load): %v", pod.Name, job, err)
+	} else {
+		log.Printf("[%s] FAIL: %s: %v", pod.Name, job, err)
+	}
+	collector.Add(report.JobResult{
+		Pod:        resultPod,
+		Job:        job,
+		Category:   "lifecycle",
+		Status:     status,
+		Error:      err.Error(),
+		Storage:    pod.StorageType,
+		VolumeMode: pod.VolumeModeStr(),
+	})
+}
+
+func runLifecycleStress(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
+	// Stress the cloned/restored volume on a distinct file so it cannot
+	// overwrite the integrity-seeded region that phase3 will verify.
+	if pod.VolumeMode != corev1.PersistentVolumeFilesystem {
+		return
+	}
+	stress := pod
+	stress.Target = "/mnt/data/lifecycle-stress.dat"
+	for _, job := range fio.ReducedSuite(stress.Target, cfg) {
+		executeFIOJob(ctx, client, stress, job, cfg, collector)
+	}
+}
+
+func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector, rt *lifecycleRuntime) {
 	clonePVCName := fmt.Sprintf("%s-%s-clone-pvc-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 
@@ -97,6 +194,11 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 	if err != nil {
 		log.Printf("[%s] FAIL: CLONE: size: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: clonePodName, Job: "clone-create", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
+		return
+	}
+
+	if err := rt.acquireProvision(ctx); err != nil {
+		log.Printf("[%s] FAIL: CLONE: provision slot: %v", pod.Name, err)
 		return
 	}
 
@@ -115,16 +217,18 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 		},
 	})
 	if err != nil {
+		rt.releaseProvision()
 		log.Printf("[%s] FAIL: CLONE: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: clonePodName, Job: "clone-create", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
 	}
 
-	if err := k8s.WaitPVCBound(ctx, client, cfg.Cluster.Namespace, clonePVCName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
-		log.Printf("[%s] FAIL: CLONE: PVC not Bound: %v", pod.Name, err)
-		collector.Add(report.JobResult{Pod: clonePodName, Job: "clone-bound", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
+	if err := k8s.WaitPVCBoundProgress(ctx, client, cfg.Cluster.Namespace, clonePVCName, cfg.Cluster.ProvisionTimeout(pod.StorageType)); err != nil {
+		rt.releaseProvision()
+		recordBoundWait(clonePodName, pod, "clone-bound", err, collector)
 		return
 	}
+	rt.releaseProvision()
 
 	err = k8s.CreatePod(ctx, client, k8s.PodSpec{
 		Name:       clonePodName,
@@ -149,12 +253,10 @@ func runCloneOps(ctx context.Context, cfg *config.Config, client *k8s.Client, po
 		Index: pod.Index, Name: clonePodName, StorageType: pod.StorageType,
 		VolumeMode: pod.VolumeMode, Target: pod.Target, PVCName: clonePVCName,
 	}
-	for _, job := range fio.ReducedSuite(pod.Target, cfg) {
-		executeFIOJob(ctx, client, clonePodInfo, job, cfg, collector)
-	}
+	runLifecycleStress(ctx, cfg, client, clonePodInfo, collector)
 }
 
-func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, snapClass string, collector *report.Collector) {
+func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, snapClass string, collector *report.Collector, rt *lifecycleRuntime) {
 	if snapClass == "" {
 		log.Printf("[%s] SKIP: SNAPSHOT: No VolumeSnapshotClass", pod.Name)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "snapshot-skip", Category: "lifecycle", Status: "skip", Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
@@ -172,7 +274,7 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 		return
 	}
 
-	if err := k8s.WaitSnapshotReady(ctx, client, cfg.Cluster.Namespace, snapName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+	if err := k8s.WaitSnapshotReady(ctx, client, cfg.Cluster.Namespace, snapName, cfg.Cluster.ProvisionTimeout(pod.StorageType)); err != nil {
 		log.Printf("[%s] FAIL: SNAPSHOT: not ready: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "snapshot-ready", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
@@ -185,6 +287,10 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 	}
 
 	apiGroup := "snapshot.storage.k8s.io"
+	if err := rt.acquireProvision(ctx); err != nil {
+		log.Printf("[%s] FAIL: SNAPSHOT: provision slot: %v", pod.Name, err)
+		return
+	}
 	err = k8s.CreatePVC(ctx, client, k8s.PVCSpec{
 		Name:         restoredPVCName,
 		Namespace:    cfg.Cluster.Namespace,
@@ -200,14 +306,17 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 		},
 	})
 	if err != nil {
+		rt.releaseProvision()
 		log.Printf("[%s] FAIL: SNAPSHOT: restored PVC: %v", pod.Name, err)
 		return
 	}
 
-	if err := k8s.WaitPVCBound(ctx, client, cfg.Cluster.Namespace, restoredPVCName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
-		log.Printf("[%s] FAIL: SNAPSHOT: restored PVC not Bound: %v", pod.Name, err)
+	if err := k8s.WaitPVCBoundProgress(ctx, client, cfg.Cluster.Namespace, restoredPVCName, cfg.Cluster.ProvisionTimeout(pod.StorageType)); err != nil {
+		rt.releaseProvision()
+		recordBoundWait(restoredPodName, pod, "restore-bound", err, collector)
 		return
 	}
+	rt.releaseProvision()
 
 	err = k8s.CreatePod(ctx, client, k8s.PodSpec{
 		Name:       restoredPodName,
@@ -232,12 +341,10 @@ func runSnapshotOps(ctx context.Context, cfg *config.Config, client *k8s.Client,
 		Index: pod.Index, Name: restoredPodName, StorageType: pod.StorageType,
 		VolumeMode: pod.VolumeMode, Target: pod.Target, PVCName: restoredPVCName,
 	}
-	for _, job := range fio.ReducedSuite(pod.Target, cfg) {
-		executeFIOJob(ctx, client, restoredPodInfo, job, cfg, collector)
-	}
+	runLifecycleStress(ctx, cfg, client, restoredPodInfo, collector)
 }
 
-func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
+func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector, rt *lifecycleRuntime) {
 	expandedSize, err := computeExpandedSize(cfg.Cluster.PVCSize, cfg.Cluster.ExpandFactor)
 	if err != nil {
 		log.Printf("[%s] FAIL: EXPAND: %v", pod.Name, err)
@@ -246,7 +353,13 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 	}
 	log.Printf("[%s] EXPAND: Patching %s from %s to %s", pod.Name, pod.PVCName, cfg.Cluster.PVCSize, expandedSize)
 
+	if err := rt.acquireProvision(ctx); err != nil {
+		log.Printf("[%s] FAIL: EXPAND: provision slot: %v", pod.Name, err)
+		return
+	}
+
 	if err := k8s.PatchPVCSize(ctx, client, cfg.Cluster.Namespace, pod.PVCName, expandedSize); err != nil {
+		rt.releaseProvision()
 		log.Printf("[%s] FAIL: EXPAND: %v", pod.Name, err)
 		collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-patch", Category: "lifecycle", Status: "fail", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 		return
@@ -259,8 +372,10 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 	for {
 		select {
 		case <-ctx.Done():
+			rt.releaseProvision()
 			return
 		case <-deadline:
+			rt.releaseProvision()
 			log.Printf("[%s] FAIL: EXPAND: capacity did not reach %s", pod.Name, expandedSize)
 			collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-wait", Category: "lifecycle", Status: "fail", Error: "timeout", Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
 			return
@@ -272,25 +387,105 @@ func runExpandOps(ctx context.Context, cfg *config.Config, client *k8s.Client, p
 			actual, _ := resource.ParseQuantity(capStr)
 			wanted, _ := resource.ParseQuantity(expandedSize)
 			if actual.Cmp(wanted) >= 0 {
+				rt.releaseProvision()
 				log.Printf("[%s] EXPAND: capacity reached %s", pod.Name, expandedSize)
-				halfRuntime := cfg.Tools.FIO.Runtime / 2
-				expandJob := fio.Job{
-					Name:     "expand-verify",
-					Category: "lifecycle",
-					Args: []string{
-						"--rw=randwrite", "--bs=4k",
-						fmt.Sprintf("--size=%s", expandedSize),
-						"--ioengine=libaio", "--direct=1", "--iodepth=16",
-						"--time_based=1", fmt.Sprintf("--runtime=%d", halfRuntime),
-						"--verify=crc32c", "--verify_backlog=128",
-						"--verify_fatal=1", "--group_reporting=1",
-					},
-				}
-				executeFIOJob(ctx, client, pod, expandJob, cfg, collector)
+				runExpandVerify(ctx, cfg, client, pod, expandedSize, collector, rt)
 				return
 			}
 		}
 	}
+}
+
+func runExpandVerify(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, expandedSize string, collector *report.Collector, rt *lifecycleRuntime) {
+	rt.quiesceSustain()
+
+	writeSize := expandedSize
+	expandJob := fio.Job{
+		Name:     "expand-verify",
+		Category: "lifecycle",
+		Args: []string{
+			"--rw=randwrite", "--bs=4k",
+			fmt.Sprintf("--size=%s", writeSize),
+			"--ioengine=libaio", "--direct=1", "--iodepth=16",
+			"--time_based=1", fmt.Sprintf("--runtime=%d", cfg.Tools.FIO.Runtime/2),
+			"--verify=crc32c", "--verify_backlog=128",
+			"--verify_fatal=1", "--group_reporting=1",
+		},
+	}
+
+	if pod.StorageType == "cephfs" {
+		avail := queryDFAvail(ctx, client, cfg.Cluster.Namespace, pod.Name, "/mnt/data")
+		sized, err := computeExpandVerifyWriteSize(cfg.Cluster.PVCSize, expandedSize, avail, pod.StorageType)
+		if err != nil {
+			log.Printf("[%s] SKIP: EXPAND: no headroom for expand-verify: %v", pod.Name, err)
+			collector.Add(report.JobResult{Pod: pod.Name, Job: "expand-verify", Category: "lifecycle", Status: "skip", Error: err.Error(), Storage: pod.StorageType, VolumeMode: pod.VolumeModeStr()})
+			return
+		}
+		writeSize = sized
+		expandJob.Filename = "/mnt/data/expand-verify.dat"
+		expandJob.Args = []string{
+			"--rw=write", "--bs=256k",
+			fmt.Sprintf("--size=%s", writeSize),
+			"--ioengine=libaio", "--direct=1", "--iodepth=16",
+			"--verify=crc32c", "--do_verify=0",
+			"--group_reporting=1",
+		}
+		log.Printf("[%s] EXPAND: CephFS verify write size %s (avail=%d)", pod.Name, writeSize, avail)
+	}
+
+	executeFIOJob(ctx, client, pod, expandJob, cfg, collector)
+}
+
+func queryDFAvail(ctx context.Context, client *k8s.Client, namespace, podName, mount string) int64 {
+	stdout, _, _, err := k8s.ExecInPod(ctx, client, namespace, podName, "fio", []string{"df", "-B1", "-P", mount})
+	if err != nil {
+		return 0
+	}
+	n, err := parseDFAvail(string(stdout))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func parseDFAvail(stdout string) (int64, error) {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) < 2 {
+		return 0, fmt.Errorf("df: unexpected output")
+	}
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) < 4 {
+		return 0, fmt.Errorf("df: bad line %q", lines[len(lines)-1])
+	}
+	return strconv.ParseInt(fields[3], 10, 64)
+}
+
+func computeExpandVerifyWriteSize(original, expanded string, availBytes int64, storageType string) (string, error) {
+	if storageType != "cephfs" {
+		return expanded, nil
+	}
+	orig, err := resource.ParseQuantity(original)
+	if err != nil {
+		return "", fmt.Errorf("parse original size %q: %w", original, err)
+	}
+	exp, err := resource.ParseQuantity(expanded)
+	if err != nil {
+		return "", fmt.Errorf("parse expanded size %q: %w", expanded, err)
+	}
+	headroom := exp.Value() - orig.Value() - expandVerifyMargin
+	if headroom < 0 {
+		headroom = 0
+	}
+	if availBytes > 0 {
+		capped := availBytes * 80 / 100
+		if capped < headroom {
+			headroom = capped
+		}
+	}
+	if headroom <= 0 {
+		return "", fmt.Errorf("no headroom for expand-verify write")
+	}
+	return resource.NewQuantity(headroom, resource.BinarySI).String(), nil
 }
 
 func runRescheduleOps(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) {
