@@ -61,6 +61,9 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	get("fio-size", func() {
 		cfg.Tools.FIO.Size, err = fs.GetString("fio-size")
 	})
+	get("seed-size", func() {
+		cfg.Cluster.SeedSize, err = fs.GetString("seed-size")
+	})
 	get("prefix", func() {
 		cfg.Cluster.Prefix, err = fs.GetString("prefix")
 	})

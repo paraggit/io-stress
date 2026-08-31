@@ -51,3 +51,31 @@ func TestParseResult_Trim(t *testing.T) {
 		t.Fatalf("trim.lat_ns=%+v", j.Trim.LatNS)
 	}
 }
+
+func TestWriteIOBytes(t *testing.T) {
+	data := []byte(`{"jobs":[{"jobname":"integrity-seed","write":{"io_bytes":536870912,"bw_bytes":1}}]}`)
+	n, ok := WriteIOBytes(data)
+	if !ok {
+		t.Fatal("expected parse ok")
+	}
+	if n != 536870912 {
+		t.Fatalf("io_bytes=%d", n)
+	}
+}
+
+func TestSizeBytes(t *testing.T) {
+	got, err := SizeBytes("512m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 512*1024*1024 {
+		t.Fatalf("512m = %d, want %d", got, 512*1024*1024)
+	}
+	got, err = SizeBytes("512Mi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 512*1024*1024 {
+		t.Fatalf("512Mi = %d", got)
+	}
+}

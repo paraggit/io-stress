@@ -21,54 +21,86 @@ const (
 	IntegritySeedBS       = "256k"
 	IntegritySeedIODepth  = "32"
 	IntegritySeedRandSeed = "1"
+	DefaultSeedSize       = "512m" // Block-only extent; must be a multiple of IntegritySeedBS
 )
 
-func IntegritySize(cfg *config.Config) string {
+func isBlockMode(volumeMode string) bool {
+	return volumeMode == "Block"
+}
+
+// IntegrityExtent is the exact byte range seed writes and phase3 verifies.
+// Filesystem keeps the dedicated-file size (tools.fio.size). Block uses the
+// bounded SeedSize so the raw device is not verified past what we overwrote.
+func IntegrityExtent(cfg *config.Config, volumeMode string) string {
+	if isBlockMode(volumeMode) {
+		return blockSeedSize(cfg)
+	}
 	if cfg != nil && cfg.Tools.FIO.Size != "" {
 		return cfg.Tools.FIO.Size
 	}
 	return "1G"
 }
 
-func IntegritySeedJob(cfg *config.Config) Job {
-	size := IntegritySize(cfg)
+func blockSeedSize(cfg *config.Config) string {
+	if cfg != nil && cfg.Cluster.SeedSize != "" {
+		return cfg.Cluster.SeedSize
+	}
+	return DefaultSeedSize
+}
+
+// IntegritySize is the Block seed extent, used as the sustain --offset so
+// background IO stays past the verified region.
+func IntegritySize(cfg *config.Config) string {
+	return blockSeedSize(cfg)
+}
+
+func IntegritySeedJob(cfg *config.Config, volumeMode string) Job {
+	size := IntegrityExtent(cfg, volumeMode)
+	args := []string{
+		"--rw=write",
+		fmt.Sprintf("--bs=%s", IntegritySeedBS),
+		fmt.Sprintf("--size=%s", size),
+		"--ioengine=libaio",
+		"--direct=1",
+		fmt.Sprintf("--iodepth=%s", IntegritySeedIODepth),
+		"--verify=crc32c",
+		"--do_verify=0",
+		"--serialize_overlap=1",
+		fmt.Sprintf("--randseed=%s", IntegritySeedRandSeed),
+		"--group_reporting=1",
+	}
+	if isBlockMode(volumeMode) {
+		args = append(args, "--offset=0")
+	}
 	return Job{
 		Name:     "integrity-seed",
 		Category: "lifecycle",
-		Args: []string{
-			"--rw=write",
-			fmt.Sprintf("--bs=%s", IntegritySeedBS),
-			fmt.Sprintf("--size=%s", size),
-			"--ioengine=libaio",
-			"--direct=1",
-			fmt.Sprintf("--iodepth=%s", IntegritySeedIODepth),
-			"--verify=crc32c",
-			"--do_verify=0",
-			"--serialize_overlap=1",
-			fmt.Sprintf("--randseed=%s", IntegritySeedRandSeed),
-			"--group_reporting=1",
-		},
+		Args:     args,
 	}
 }
 
-func IntegrityVerifyJob(cfg *config.Config) Job {
-	size := IntegritySize(cfg)
+func IntegrityVerifyJob(cfg *config.Config, volumeMode string) Job {
+	size := IntegrityExtent(cfg, volumeMode)
+	args := []string{
+		"--rw=read",
+		fmt.Sprintf("--bs=%s", IntegritySeedBS),
+		fmt.Sprintf("--size=%s", size),
+		"--ioengine=libaio",
+		"--direct=1",
+		fmt.Sprintf("--iodepth=%s", IntegritySeedIODepth),
+		"--verify=crc32c",
+		"--verify_only=1",
+		"--serialize_overlap=1",
+		fmt.Sprintf("--randseed=%s", IntegritySeedRandSeed),
+		"--group_reporting=1",
+	}
+	if isBlockMode(volumeMode) {
+		args = append(args, "--offset=0")
+	}
 	return Job{
 		Name:     "phase3-verify",
 		Category: "lifecycle",
-		Args: []string{
-			"--rw=read",
-			fmt.Sprintf("--bs=%s", IntegritySeedBS),
-			fmt.Sprintf("--size=%s", size),
-			"--ioengine=libaio",
-			"--direct=1",
-			fmt.Sprintf("--iodepth=%s", IntegritySeedIODepth),
-			"--verify=crc32c",
-			"--verify_only=1",
-			"--serialize_overlap=1",
-			fmt.Sprintf("--randseed=%s", IntegritySeedRandSeed),
-			"--group_reporting=1",
-		},
+		Args:     args,
 	}
 }
 

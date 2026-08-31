@@ -48,7 +48,7 @@ func verifyCloneAndRestored(ctx context.Context, cfg *config.Config, client *k8s
 	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 	restoredPodName := fmt.Sprintf("%s-%s-restored-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 
-	verifyJob := fio.IntegrityVerifyJob(cfg)
+	verifyJob := fio.IntegrityVerifyJob(cfg, pod.VolumeModeStr())
 
 	for _, targetPod := range []string{clonePodName, restoredPodName} {
 		if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, targetPod, 10*time.Second); err != nil {

@@ -144,12 +144,35 @@ func runLifecycleOnPod(ctx context.Context, cfg *config.Config, client *k8s.Clie
 }
 
 func seedIntegrity(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) error {
-	result := executeFIOJob(ctx, client, pod, fio.IntegritySeedJob(cfg), cfg, collector)
+	result := runFIOJob(ctx, client, pod, fio.IntegritySeedJob(cfg, pod.VolumeModeStr()), cfg)
+	if result.Status == "pass" && pod.VolumeMode == corev1.PersistentVolumeBlock {
+		if err := assertSeedCoverage(result, cfg, pod.VolumeModeStr()); err != nil {
+			result.Status = "fail"
+			result.Error = err.Error()
+			log.Printf("[%s] FAIL integrity-seed coverage: %v", pod.Name, err)
+		}
+	}
+	collector.Add(result)
 	if result.Status != "pass" {
 		if result.Error != "" {
 			return fmt.Errorf("%s", result.Error)
 		}
 		return fmt.Errorf("integrity-seed status %s", result.Status)
+	}
+	return nil
+}
+
+func assertSeedCoverage(result report.JobResult, cfg *config.Config, volumeMode string) error {
+	want, err := fio.SizeBytes(fio.IntegrityExtent(cfg, volumeMode))
+	if err != nil {
+		return err
+	}
+	wrote, ok := fio.WriteIOBytes(result.FIOOutput)
+	if !ok {
+		return nil // non-JSON output; skip
+	}
+	if wrote < want {
+		return fmt.Errorf("integrity-seed wrote %d bytes, want >= %d (%s)", wrote, want, fio.IntegrityExtent(cfg, volumeMode))
 	}
 	return nil
 }
