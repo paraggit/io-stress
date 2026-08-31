@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -155,6 +156,24 @@ func TestApplyChangedFlags_Sequential(t *testing.T) {
 
 	if cfg.Tools.FIO.Parallel {
 		t.Error("sequential flag should set parallel=false")
+	}
+}
+
+func TestApplyChangedFlags_CloneTimeoutAndProvisionLimit(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Duration("clone-timeout", 0, "")
+	fs.Int("max-parallel-provision", 0, "")
+	_ = fs.Parse([]string{"--clone-timeout", "15m", "--max-parallel-provision", "2"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.CloneTimeout.Duration() != 15*time.Minute {
+		t.Errorf("CloneTimeout = %v, want 15m", cfg.Cluster.CloneTimeout.Duration())
+	}
+	if cfg.Cluster.MaxParallelProvision != 2 {
+		t.Errorf("MaxParallelProvision = %d, want 2", cfg.Cluster.MaxParallelProvision)
 	}
 }
 

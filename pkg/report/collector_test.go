@@ -59,6 +59,31 @@ func TestComputeSummary(t *testing.T) {
 	}
 }
 
+func TestComputeSummary_SlowNotFailed(t *testing.T) {
+	results := []JobResult{
+		{Job: "clone-bound", Category: "lifecycle", Status: "slow"},
+		{Job: "clone-bound", Category: "lifecycle", Status: "retryable"},
+		{Job: "expand-verify", Category: "lifecycle", Status: "fail"},
+		{Job: "phase1", Category: "stress", Status: "pass"},
+	}
+	s := ComputeSummary(results)
+	if s.Failed != 1 {
+		t.Errorf("Failed = %d, want 1 (slow/retryable must not count as fail)", s.Failed)
+	}
+	if s.Slow != 2 {
+		t.Errorf("Slow = %d, want 2", s.Slow)
+	}
+	if s.Lifecycle.Slow != 2 {
+		t.Errorf("Lifecycle.Slow = %d, want 2", s.Lifecycle.Slow)
+	}
+	if s.Lifecycle.Failed != 1 {
+		t.Errorf("Lifecycle.Failed = %d, want 1", s.Lifecycle.Failed)
+	}
+	if s.Passed != 1 {
+		t.Errorf("Passed = %d, want 1", s.Passed)
+	}
+}
+
 func TestWriteJSON(t *testing.T) {
 	dir := t.TempDir()
 	rpt := &RunReport{

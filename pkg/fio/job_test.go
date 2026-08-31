@@ -84,8 +84,8 @@ func TestJobsForVolume_CephFSFilesystem(t *testing.T) {
 func TestReducedSuite(t *testing.T) {
 	cfg := config.NewDefault()
 	jobs := ReducedSuite("/mnt/data/fio.dat", cfg)
-	if len(jobs) != 2 {
-		t.Errorf("ReducedSuite returned %d jobs, want 2", len(jobs))
+	if len(jobs) != 1 {
+		t.Errorf("ReducedSuite returned %d jobs, want 1", len(jobs))
 	}
 	names := map[string]bool{}
 	for _, j := range jobs {
@@ -94,9 +94,98 @@ func TestReducedSuite(t *testing.T) {
 	if !names["data-integrity-4k"] {
 		t.Error("ReducedSuite missing data-integrity-4k")
 	}
-	if !names["high-iodepth-stress"] {
-		t.Error("ReducedSuite missing high-iodepth-stress")
+	if names["high-iodepth-stress"] {
+		t.Error("ReducedSuite must not include high-iodepth-stress (clobbers integrity seed)")
 	}
+}
+
+func TestIntegritySeedAndVerify_SameCoverageNoTimeBased(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Tools.FIO.Size = "2G"
+
+	seed := IntegritySeedJob(cfg)
+	verify := IntegrityVerifyJob(cfg)
+
+	if seed.Name != "integrity-seed" {
+		t.Errorf("seed name = %q, want integrity-seed", seed.Name)
+	}
+	if verify.Name != "phase3-verify" {
+		t.Errorf("verify name = %q, want phase3-verify", verify.Name)
+	}
+
+	seedArgs := joinArgs(seed.Args)
+	verifyArgs := joinArgs(verify.Args)
+
+	for _, jobName := range []string{"seed", "verify"} {
+		args := seedArgs
+		if jobName == "verify" {
+			args = verifyArgs
+		}
+		for _, forbidden := range []string{"--time_based", "--runtime="} {
+			if containsArgPrefix(args, forbidden) {
+				t.Errorf("%s job must not include %s; got %v", jobName, forbidden, args)
+			}
+		}
+	}
+
+	wantSize := "--size=2G"
+	wantBS := "--bs=" + IntegritySeedBS
+	if !containsArg(seed.Args, wantSize) || !containsArg(verify.Args, wantSize) {
+		t.Errorf("seed/verify size mismatch: seed=%v verify=%v", seed.Args, verify.Args)
+	}
+	if !containsArg(seed.Args, wantBS) || !containsArg(verify.Args, wantBS) {
+		t.Errorf("seed/verify bs mismatch: seed=%v verify=%v", seed.Args, verify.Args)
+	}
+	if IntegritySize(cfg) != "2G" {
+		t.Errorf("IntegritySize = %q, want 2G", IntegritySize(cfg))
+	}
+	if !containsArg(seed.Args, "--rw=write") {
+		t.Errorf("seed must be sequential write, got %v", seed.Args)
+	}
+	if !containsArg(verify.Args, "--rw=read") {
+		t.Errorf("verify must be sequential read, got %v", verify.Args)
+	}
+	if !containsArg(verify.Args, "--verify_only=1") {
+		t.Errorf("verify must be verify_only, got %v", verify.Args)
+	}
+	if !containsArg(seed.Args, "--verify=crc32c") || !containsArg(verify.Args, "--verify=crc32c") {
+		t.Error("seed and verify must use crc32c")
+	}
+}
+
+func TestBuildArgs_FilenameOverride(t *testing.T) {
+	j := Job{
+		Name:     "expand-verify",
+		Filename: "/mnt/data/expand-verify.dat",
+		Args:     []string{"--rw=write"},
+	}
+	args := BuildArgs(j, "/mnt/data/fio.dat", "json")
+	if !containsArg(args, "--filename=/mnt/data/expand-verify.dat") {
+		t.Errorf("expected Filename override, got %v", args)
+	}
+	if containsArg(args, "--filename=/mnt/data/fio.dat") {
+		t.Errorf("pod target should not win over Job.Filename, got %v", args)
+	}
+}
+
+func joinArgs(args []string) []string { return args }
+
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArgPrefix(args []string, prefix string) bool {
+	for _, a := range args {
+		if len(a) >= len(prefix) && a[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCephFSRWXJobs(t *testing.T) {

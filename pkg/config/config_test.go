@@ -31,6 +31,12 @@ func TestNewDefault(t *testing.T) {
 	if time.Duration(cfg.Cluster.WaitTimeout) != 5*time.Minute {
 		t.Errorf("WaitTimeout = %v", cfg.Cluster.WaitTimeout)
 	}
+	if time.Duration(cfg.Cluster.CloneTimeout) != 20*time.Minute {
+		t.Errorf("CloneTimeout = %v, want 20m", cfg.Cluster.CloneTimeout)
+	}
+	if cfg.Cluster.MaxParallelProvision != 4 {
+		t.Errorf("MaxParallelProvision = %d, want 4", cfg.Cluster.MaxParallelProvision)
+	}
 	if !cfg.Tools.FIO.Parallel {
 		t.Error("Parallel should default true")
 	}
@@ -89,6 +95,18 @@ func TestValidate(t *testing.T) {
 		{"negative CephFS NumPVC", func(c *Config) {
 			c.Cluster.CephFS.NumPVC = -1
 		}, true},
+		{"negative clone timeout", func(c *Config) {
+			c.Cluster.CloneTimeout = Duration(-1 * time.Minute)
+		}, true},
+		{"zero clone timeout", func(c *Config) {
+			c.Cluster.CloneTimeout = 0
+		}, true},
+		{"negative max parallel provision", func(c *Config) {
+			c.Cluster.MaxParallelProvision = -1
+		}, true},
+		{"zero max parallel provision ok", func(c *Config) {
+			c.Cluster.MaxParallelProvision = 0
+		}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -134,10 +152,46 @@ func TestDefaultSuitesJobNames(t *testing.T) {
 		}
 	}
 	life := names(s.Lifecycle)
-	for _, n := range []string{"data-integrity-4k", "high-iodepth-stress"} {
-		if !life[n] {
-			t.Errorf("lifecycle missing %q", n)
-		}
+	if !life["data-integrity-4k"] {
+		t.Error("lifecycle missing data-integrity-4k")
+	}
+	if life["high-iodepth-stress"] {
+		t.Error("lifecycle must not include high-iodepth-stress (clobbers integrity seed)")
+	}
+}
+
+func TestProvisionTimeout_ByStorageType(t *testing.T) {
+	cfg := NewDefault()
+	cephfs := cfg.Cluster.ProvisionTimeout("cephfs")
+	rbd := cfg.Cluster.ProvisionTimeout("rbd")
+	if cephfs != 20*time.Minute {
+		t.Errorf("cephfs provision timeout = %v, want 20m", cephfs)
+	}
+	if rbd != 5*time.Minute {
+		t.Errorf("rbd provision timeout = %v, want 5m (WaitTimeout)", rbd)
+	}
+
+	cfg.Cluster.CloneTimeout = Duration(30 * time.Minute)
+	if got := cfg.Cluster.ProvisionTimeout("cephfs"); got != 30*time.Minute {
+		t.Errorf("explicit clone timeout: cephfs = %v, want 30m", got)
+	}
+	if got := cfg.Cluster.ProvisionTimeout("rbd"); got != 5*time.Minute {
+		t.Errorf("rbd should still use WaitTimeout, got %v", got)
+	}
+}
+
+func TestProvisionLimit(t *testing.T) {
+	cfg := NewDefault()
+	if cfg.Cluster.ProvisionLimit() != 4 {
+		t.Errorf("default ProvisionLimit = %d, want 4", cfg.Cluster.ProvisionLimit())
+	}
+	cfg.Cluster.MaxParallelProvision = 0
+	if cfg.Cluster.ProvisionLimit() != 4 {
+		t.Errorf("zero MaxParallelProvision should default to 4, got %d", cfg.Cluster.ProvisionLimit())
+	}
+	cfg.Cluster.MaxParallelProvision = 2
+	if cfg.Cluster.ProvisionLimit() != 2 {
+		t.Errorf("got %d, want 2", cfg.Cluster.ProvisionLimit())
 	}
 }
 

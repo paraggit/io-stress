@@ -48,19 +48,7 @@ func verifyCloneAndRestored(ctx context.Context, cfg *config.Config, client *k8s
 	clonePodName := fmt.Sprintf("%s-%s-clone-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 	restoredPodName := fmt.Sprintf("%s-%s-restored-pod-%d", cfg.Cluster.Prefix, pod.StorageType, pod.Index)
 
-	halfRuntime := cfg.Tools.FIO.Runtime / 2
-	verifyJob := fio.Job{
-		Name:     "phase3-verify",
-		Category: "lifecycle",
-		Args: []string{
-			"--rw=randread", "--bs=4k",
-			fmt.Sprintf("--size=%s", cfg.Tools.FIO.Size),
-			"--ioengine=libaio", "--direct=1", "--iodepth=16",
-			"--time_based=1", fmt.Sprintf("--runtime=%d", halfRuntime),
-			"--verify=crc32c", "--verify_only=1",
-			"--group_reporting=1",
-		},
-	}
+	verifyJob := fio.IntegrityVerifyJob(cfg)
 
 	for _, targetPod := range []string{clonePodName, restoredPodName} {
 		if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, targetPod, 10*time.Second); err != nil {

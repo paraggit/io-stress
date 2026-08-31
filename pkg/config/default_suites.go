@@ -329,6 +329,9 @@ func defaultSuites() Suites {
 				},
 			},
 		},
+		// Lifecycle jobs run on a *separate* file after the integrity seed.
+		// Do not add non-verify writers (e.g. high-iodepth-stress) that would
+		// clobber the seeded region verified by phase3.
 		Lifecycle: []Pattern{
 			{
 				Name:     "data-integrity-4k",
@@ -347,19 +350,6 @@ func defaultSuites() Suites {
 					"verify_dump":      "1",
 					"random_generator": "lfsr",
 					"group_reporting":  "1",
-				},
-			},
-			{
-				Name:     "high-iodepth-stress",
-				Category: "lifecycle",
-				Params: map[string]string{
-					"rw":              "randwrite",
-					"bs":              "4k",
-					"ioengine":        "libaio",
-					"direct":          "1",
-					"iodepth":         "128",
-					"time_based":      "1",
-					"group_reporting": "1",
 				},
 			},
 		},

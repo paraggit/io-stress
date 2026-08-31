@@ -86,6 +86,7 @@ func main() {
 	f.String("fio-size", def.Tools.FIO.Size, "FIO file/device size")
 	f.StringP("prefix", "p", def.Cluster.Prefix, "Resource name prefix")
 	f.DurationP("timeout", "t", def.Cluster.WaitTimeout.Duration(), "Wait timeout for PVC/pod readiness")
+	f.Duration("clone-timeout", def.Cluster.CloneTimeout.Duration(), "Timeout for clone/restore PVC Bound waits (CephFS; RBD uses --timeout)")
 	f.StringP("format", "f", def.Tools.FIO.OutputFormat, "FIO output format: json, normal")
 	f.Bool("no-cleanup", def.Cluster.NoCleanup, "Skip resource cleanup on exit")
 	f.Bool("dry-run", def.Cluster.DryRun, "Emit YAML manifests without creating resources")
@@ -96,6 +97,7 @@ func main() {
 	f.String("snapshot-class", def.Cluster.SnapshotClass, "Override VolumeSnapshotClass")
 	f.Int("sustain-runtime", def.Cluster.SustainRuntime, "Sustain workload duration (default: runtime*3)")
 	f.Int("max-parallel", def.Cluster.MaxParallelPods, "Max concurrent pods (0=unlimited)")
+	f.Int("max-parallel-provision", def.Cluster.MaxParallelProvision, "Max in-flight clone/restore/expand operations")
 	f.Bool("sequential", !def.Tools.FIO.Parallel, "Run FIO workloads sequentially")
 	f.String("app-type", "", "Comma-separated app workload profiles from tools.fio.app_suites (built-ins: "+strings.Join(config.ValidAppTypes(nil), ", ")+")")
 

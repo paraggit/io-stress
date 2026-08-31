@@ -71,6 +71,13 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 			cfg.Cluster.WaitTimeout = Duration(d)
 		}
 	})
+	get("clone-timeout", func() {
+		var d time.Duration
+		d, err = fs.GetDuration("clone-timeout")
+		if err == nil {
+			cfg.Cluster.CloneTimeout = Duration(d)
+		}
+	})
 	get("format", func() {
 		cfg.Tools.FIO.OutputFormat, err = fs.GetString("format")
 	})
@@ -100,6 +107,9 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	})
 	get("max-parallel", func() {
 		cfg.Cluster.MaxParallelPods, err = fs.GetInt("max-parallel")
+	})
+	get("max-parallel-provision", func() {
+		cfg.Cluster.MaxParallelProvision, err = fs.GetInt("max-parallel-provision")
 	})
 	get("sequential", func() {
 		var seq bool
