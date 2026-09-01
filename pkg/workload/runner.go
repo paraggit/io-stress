@@ -19,6 +19,8 @@ import (
 )
 
 func Run(ctx context.Context, cfg *config.Config) error {
+	config.ApplySetupOnly(cfg)
+
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
@@ -51,6 +53,13 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	readyPods, err := waitForPods(ctx, cfg, client, allPods)
 	if err != nil {
 		return err
+	}
+
+	if cfg.Cluster.SetupOnly {
+		log.Printf("Setup-only: %d/%d pods Ready in namespace %s — skipping workloads",
+			len(readyPods), len(allPods), cfg.Cluster.Namespace)
+		log.Printf("PVCs and pods left in place (cleanup skipped)")
+		return nil
 	}
 
 	collector := report.NewCollector()

@@ -24,6 +24,7 @@ type Cluster struct {
 	LifecycleInterval    int      `yaml:"lifecycle_interval" json:"lifecycle_interval"`
 	SkipLifecycle        bool     `yaml:"skip_lifecycle" json:"skip_lifecycle"`
 	SkipFIOStress        bool     `yaml:"skip_fio_stress" json:"skip_fio_stress"`
+	SetupOnly            bool     `yaml:"setup_only" json:"setup_only"`
 	ExpandFactor         int      `yaml:"expand_factor" json:"expand_factor"`
 	SnapshotClass        string   `yaml:"snapshot_class" json:"snapshot_class"`
 	MaxParallelPods      int      `yaml:"max_parallel_pods" json:"max_parallel_pods"`
@@ -150,7 +151,7 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("seed-size must not be empty")
 	}
 	// Standard suites are used only when app_types is empty.
-	if !cfg.Cluster.SkipFIOStress && !hasAppTypes && hasStandard {
+	if !cfg.Cluster.SkipFIOStress && !cfg.Cluster.SetupOnly && !hasAppTypes && hasStandard {
 		if len(cfg.Tools.FIO.Suites.Common) == 0 {
 			return fmt.Errorf("when skip_fio_stress is false and volumes will be created, at least one common FIO pattern must be defined")
 		}
@@ -199,6 +200,17 @@ func (c Cluster) ProvisionLimit() int64 {
 		return int64(c.MaxParallelProvision)
 	}
 	return 4
+}
+
+// ApplySetupOnly, when SetupOnly is set, skips FIO and lifecycle and leaves
+// PVCs/pods in place so the command can provision without starting a workload.
+func ApplySetupOnly(cfg *Config) {
+	if cfg == nil || !cfg.Cluster.SetupOnly {
+		return
+	}
+	cfg.Cluster.SkipFIOStress = true
+	cfg.Cluster.SkipLifecycle = true
+	cfg.Cluster.NoCleanup = true
 }
 
 func allPatterns(s Suites) []Pattern {

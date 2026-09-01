@@ -46,6 +46,9 @@ func TestNewDefault(t *testing.T) {
 	if cfg.Cluster.SustainRuntime != 180 {
 		t.Errorf("SustainRuntime = %d, want 180", cfg.Cluster.SustainRuntime)
 	}
+	if cfg.Cluster.SetupOnly {
+		t.Error("SetupOnly should default false")
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -90,6 +93,10 @@ func TestValidate(t *testing.T) {
 		}, true},
 		{"empty common suite ok when stress skipped", func(c *Config) {
 			c.Cluster.SkipFIOStress = true
+			c.Tools.FIO.Suites.Common = []Pattern{}
+		}, false},
+		{"empty common suite ok when setup-only", func(c *Config) {
+			c.Cluster.SetupOnly = true
 			c.Tools.FIO.Suites.Common = []Pattern{}
 		}, false},
 		{"negative RBD NumPVC", func(c *Config) {
@@ -198,6 +205,21 @@ func TestProvisionLimit(t *testing.T) {
 	cfg.Cluster.MaxParallelProvision = 2
 	if cfg.Cluster.ProvisionLimit() != 2 {
 		t.Errorf("got %d, want 2", cfg.Cluster.ProvisionLimit())
+	}
+}
+
+func TestApplySetupOnly(t *testing.T) {
+	cfg := NewDefault()
+	ApplySetupOnly(cfg)
+	if cfg.Cluster.SkipFIOStress || cfg.Cluster.SkipLifecycle || cfg.Cluster.NoCleanup {
+		t.Fatal("ApplySetupOnly must be a no-op when SetupOnly is false")
+	}
+
+	cfg.Cluster.SetupOnly = true
+	ApplySetupOnly(cfg)
+	if !cfg.Cluster.SkipFIOStress || !cfg.Cluster.SkipLifecycle || !cfg.Cluster.NoCleanup {
+		t.Fatalf("setup-only should skip workloads and cleanup: skip_fio=%v skip_life=%v no_cleanup=%v",
+			cfg.Cluster.SkipFIOStress, cfg.Cluster.SkipLifecycle, cfg.Cluster.NoCleanup)
 	}
 }
 

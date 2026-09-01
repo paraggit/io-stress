@@ -69,6 +69,9 @@ Run without `--config` uses built-in defaults (same effective behavior as before
 # FIO stress only (skip lifecycle and verify)
 ./odf-io-stress run --skip-lifecycle
 
+# Create PVCs and pods only (no FIO/lifecycle); resources stay in the namespace
+./odf-io-stress run --setup-only --num-pvc 4
+
 # Keep resources after the run
 ./odf-io-stress run --no-cleanup
 
@@ -162,6 +165,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--lifecycle-interval` | `4` | Run lifecycle ops on every Nth pod |
 | `--skip-lifecycle` | `false` | Skip lifecycle storm and verify phases |
 | `--skip-fio-stress` | `false` | Skip FIO stress phase |
+| `--setup-only` | `false` | Create PVCs and pods, then exit without running workloads (implies `--no-cleanup`) |
 | `--expand-factor` | `2` | PVC expand size multiplier |
 | `--snapshot-class` | _(auto)_ | Override VolumeSnapshotClass |
 | `--sustain-runtime` | `runtime*3` | Sustain workload duration (seconds) |

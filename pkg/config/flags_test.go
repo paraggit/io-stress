@@ -191,6 +191,20 @@ func TestApplyChangedFlags_SeedSize(t *testing.T) {
 	}
 }
 
+func TestApplyChangedFlags_SetupOnly(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Bool("setup-only", false, "")
+	_ = fs.Parse([]string{"--setup-only"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Cluster.SetupOnly {
+		t.Error("setup-only flag should set SetupOnly")
+	}
+}
+
 func TestApplyChangedFlags_SequentialFalseOverridesConfig(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	fs.Bool("sequential", true, "")
