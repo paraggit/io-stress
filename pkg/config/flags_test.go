@@ -191,6 +191,34 @@ func TestApplyChangedFlags_SeedSize(t *testing.T) {
 	}
 }
 
+func TestApplyChangedFlags_WriteVerify(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Bool("write-verify", false, "")
+	_ = fs.Parse([]string{"--write-verify"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Cluster.WriteVerify {
+		t.Error("WriteVerify should be true")
+	}
+}
+
+func TestApplyChangedFlags_SetupOnly(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.Bool("setup-only", false, "")
+	_ = fs.Parse([]string{"--setup-only"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Cluster.SetupOnly {
+		t.Error("SetupOnly should be true")
+	}
+}
+
 func TestApplyChangedFlags_SequentialFalseOverridesConfig(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	fs.Bool("sequential", true, "")

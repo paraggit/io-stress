@@ -19,6 +19,9 @@ import (
 )
 
 func Run(ctx context.Context, cfg *config.Config) error {
+	config.ApplyWriteVerify(cfg)
+	config.ApplySetupOnly(cfg)
+
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
@@ -51,6 +54,15 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	readyPods, err := waitForPods(ctx, cfg, client, allPods)
 	if err != nil {
 		return err
+	}
+
+	if cfg.Cluster.SetupOnly {
+		log.Printf("Setup-only: %d PVC/pod(s) ready in namespace %s (no FIO/lifecycle; resources kept)", len(readyPods), cfg.Cluster.Namespace)
+		return nil
+	}
+
+	if cfg.Cluster.WriteVerify {
+		log.Println("Write-verify mode: skipping lifecycle (crc32c verify runs with each write)")
 	}
 
 	collector := report.NewCollector()

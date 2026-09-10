@@ -59,6 +59,8 @@ func main() {
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
+			config.ApplyWriteVerify(cfg)
+			config.ApplySetupOnly(cfg)
 			if cfg.Cluster.DryRun {
 				return workload.DryRun(cfg)
 			}
@@ -94,6 +96,8 @@ func main() {
 	f.Int("lifecycle-interval", def.Cluster.LifecycleInterval, "Run lifecycle ops on every Nth pod")
 	f.Bool("skip-lifecycle", def.Cluster.SkipLifecycle, "Skip lifecycle storm and verify phases")
 	f.Bool("skip-fio-stress", def.Cluster.SkipFIOStress, "Skip FIO stress phase")
+	f.Bool("write-verify", def.Cluster.WriteVerify, "Run FIO write+immediate crc32c verify only (skips stress suite and lifecycle)")
+	f.Bool("setup-only", def.Cluster.SetupOnly, "Create PVCs and pods, wait until Ready, then exit (no FIO/lifecycle; implies --no-cleanup)")
 	f.Int("expand-factor", def.Cluster.ExpandFactor, "PVC expand size multiplier")
 	f.String("snapshot-class", def.Cluster.SnapshotClass, "Override VolumeSnapshotClass")
 	f.Int("sustain-runtime", def.Cluster.SustainRuntime, "Sustain workload duration (default: runtime*3)")

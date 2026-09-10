@@ -29,7 +29,11 @@ func DryRun(cfg *config.Config) error {
 		emitPodYAML(podName, pvcName, cfg.Cluster.Namespace, cfg.Tools.FIO.Image, "Filesystem", cfg.Cluster.Prefix)
 	}
 
-	if len(cfg.Cluster.AppTypes) > 0 {
+	if cfg.Cluster.SetupOnly {
+		log.Printf("Setup-only mode: manifests only; a real run would create these PVCs/pods and exit without FIO")
+	} else if cfg.Cluster.WriteVerify {
+		log.Printf("Write-verify mode: each PVC/pod will run a single sequential write+immediate crc32c verify (no stress suite, no lifecycle)")
+	} else if len(cfg.Cluster.AppTypes) > 0 {
 		log.Printf("App-type mode: profiles %v will run on every PVC/pod above (no extra PVCs)", cfg.Cluster.AppTypes)
 	}
 

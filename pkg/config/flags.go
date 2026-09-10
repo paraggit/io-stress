@@ -99,6 +99,12 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	get("skip-fio-stress", func() {
 		cfg.Cluster.SkipFIOStress, err = fs.GetBool("skip-fio-stress")
 	})
+	get("write-verify", func() {
+		cfg.Cluster.WriteVerify, err = fs.GetBool("write-verify")
+	})
+	get("setup-only", func() {
+		cfg.Cluster.SetupOnly, err = fs.GetBool("setup-only")
+	})
 	get("expand-factor", func() {
 		cfg.Cluster.ExpandFactor, err = fs.GetInt("expand-factor")
 	})

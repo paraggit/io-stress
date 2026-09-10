@@ -66,8 +66,20 @@ Run without `--config` uses built-in defaults (same effective behavior as before
 # Preview manifests without creating resources
 ./odf-io-stress run --dry-run
 
-# FIO stress only (skip lifecycle and verify)
+# Create PVCs and pods only (no FIO; resources kept)
+./odf-io-stress run --setup-only --num-pvc 4
+
+# FIO stress only (skip lifecycle clone/snapshot and phase-3 verify_only)
 ./odf-io-stress run --skip-lifecycle
+
+# Data verification: write then crc32c-verify immediately (no stress suite, no lifecycle)
+./odf-io-stress run --write-verify
+./odf-io-stress run --write-verify --fio-size 2G
+./odf-io-stress run --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
+./odf-io-stress run --write-verify --num-pvc 4 --no-cleanup
+
+# Lifecycle integrity verify (default): seed then verify_only on clone/restore
+./odf-io-stress run --seed-size 256m
 
 # Keep resources after the run
 ./odf-io-stress run --no-cleanup
@@ -106,7 +118,11 @@ cluster:
   pvc_size: 10Gi
   prefix: odf-io
   wait_timeout: 5m
-  seed_size: 512m   # Block integrity seed/verify extent (see Data integrity verify)
+  clone_timeout: 20m           # CephFS clone/restore Bound wait (RBD uses wait_timeout)
+  max_parallel_provision: 4    # in-flight clone/restore/expand ops
+  seed_size: 512m              # Block integrity seed/verify extent (see Data integrity verify)
+  write_verify: false          # true → single write+immediate crc32c job; skips stress suite and lifecycle
+  setup_only: false            # true → create PVCs/pods and exit (implies no_cleanup)
   app_types: [nfs, vm, database]  # optional, comma-separated in CLI
   # ... lifecycle, cleanup, sustain, etc.
 
@@ -154,14 +170,18 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--seed-size` | `512m` | Block integrity seed/verify extent (sequential, not time-based) |
 | `-p, --prefix` | `odf-io` | Resource name prefix |
 | `-t, --timeout` | `5m` | Wait timeout for PVC/pod readiness |
+| `--clone-timeout` | `20m` | Bound wait for clone/restore PVCs on CephFS (RBD uses `--timeout`) |
 | `-f, --format` | `json` | FIO output format (`json`, `normal`) |
 | `--sequential` | `false` | Run FIO jobs sequentially (`tools.fio.parallel=false`) |
 | `--max-parallel` | `0` | Max concurrent pods (`0` = unlimited) |
+| `--max-parallel-provision` | `4` | Max in-flight clone/restore/expand operations |
 | `--no-cleanup` | `false` | Skip resource cleanup on exit |
 | `--dry-run` | `false` | Emit YAML manifests only |
 | `--lifecycle-interval` | `4` | Run lifecycle ops on every Nth pod |
 | `--skip-lifecycle` | `false` | Skip lifecycle storm and verify phases |
 | `--skip-fio-stress` | `false` | Skip FIO stress phase |
+| `--write-verify` | `false` | Write then crc32c-verify in the same FIO job (`--do_verify=1 --verify_backlog=1`); skips the stress suite and lifecycle |
+| `--setup-only` | `false` | Create PVCs and pods, wait until Ready, then exit (no FIO/lifecycle; implies `--no-cleanup`) |
 | `--expand-factor` | `2` | PVC expand size multiplier |
 | `--snapshot-class` | _(auto)_ | Override VolumeSnapshotClass |
 | `--sustain-runtime` | `runtime*3` | Sustain workload duration (seconds) |
@@ -251,9 +271,91 @@ Those belong as future `tools.*` runners, not as `app_suites` entries.
 
 ## Test phases
 
-1. **FIO stress** — Unaligned IO, object-boundary writes, mixed block sizes, integrity checks, and backend-specific jobs (RBD block / CephFS filesystem, including RWX where applicable).
+1. **FIO stress** — Unaligned IO, object-boundary writes, mixed block sizes, integrity checks, and backend-specific jobs (RBD block / CephFS filesystem, including RWX where applicable). With `--write-verify`, this phase is a single sequential write that verifies crc32c immediately after each IO (see below).
 2. **Lifecycle storm** — PVC expand, clone, and snapshot/restore on a subset of pods (controlled by `--lifecycle-interval`). Before clone/snapshot, the source is sequentially seeded for later verify.
 3. **Data integrity verify** — FIO `verify_only` against clone and restored volumes, covering **exactly** the seeded extent.
+
+`--setup-only` stops after PVC/pod provisioning (none of the phases above run). `--write-verify` runs only a write+immediate-verify job in phase 1 and skips lifecycle/phase 3.
+
+### Data verification options
+
+There are two integrity paths. `--write-verify` writes and checks crc32c in the same FIO job; the default run seeds in phase 2 and uses fio `--verify_only` on clone/restore in phase 3.
+
+| What you want | Flag / config | What FIO does | Lifecycle / phase 3 |
+|---------------|---------------|---------------|---------------------|
+| Write data and verify it immediately | `--write-verify` / `cluster.write_verify: true` | Sequential `--rw=write` of `--fio-size`, `--verify=crc32c`, `--do_verify=1`, `--verify_backlog=1` (same job) | Skipped |
+| Check clone/restore after lifecycle | default run (no `--write-verify`) | Phase 2 `integrity-seed` (`--do_verify=0`), then phase 3 `--rw=read --verify_only=1` on the seeded extent | Runs |
+| Stress only, no integrity check | `--skip-lifecycle` | Full FIO stress suite | Skipped |
+
+### Setup-only mode (`--setup-only`)
+
+`--setup-only` / `cluster.setup_only` creates the namespace, PVCs, and FIO pods, waits until they are Bound/Ready, then exits. FIO, lifecycle, and phase-3 verify are not run. Cleanup is skipped (`--no-cleanup`) so the resources stay in the cluster (for example a manual `fio` exec). Each new `run` still resets the namespace.
+
+```bash
+./odf-io-stress run --setup-only --num-pvc 4
+./odf-io-stress run --setup-only --rbd-num-pvc 2 --cephfs-num-pvc 0
+```
+
+`--dry-run --setup-only` still only prints manifests.
+
+### Write-verify mode (`--write-verify`)
+
+Use this when you only care that the storage can **write and read back crc32c correctly**, without the stress suite or clone/snapshot.
+
+`--write-verify` / `cluster.write_verify` replaces phase 1 with one FIO job (`write-verify`): sequential `--rw=write` of `--fio-size`, `--verify=crc32c`, `--do_verify=1`, `--verify_backlog=1`. FIO writes a block and verifies it before moving on. The job is not `--time_based`, so the full size is written and verified. Size follows `--fio-size` / `tools.fio.size` (default `1G`).
+
+```bash
+# All default PVCs (4 RBD + 4 CephFS), 1G write+verify each
+./odf-io-stress run --write-verify
+
+# Larger region
+./odf-io-stress run --write-verify --fio-size 2G
+
+# RBD only (Filesystem + Block pods)
+./odf-io-stress run --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
+
+# Leave pods up after verify
+./odf-io-stress run --write-verify --num-pvc 4 --no-cleanup
+
+# From config
+./odf-io-stress run --config odf-io-stress.yaml
+```
+
+```yaml
+cluster:
+  write_verify: true
+  rbd:
+    num_pvc: 2
+  cephfs:
+    num_pvc: 2
+tools:
+  fio:
+    size: 2G   # region written and verified
+```
+
+This is **not** phase-3 `verify_only` (read-only check of a previously seeded clone/restore). If both `--write-verify` and `--setup-only` are set, setup-only wins (provision and exit).
+
+### Lifecycle verify (default: seed + `verify_only`)
+
+A normal `run` (without `--write-verify`) still verifies data, but later: phase 2 sequentially seeds a known extent, then phase 3 runs `--verify_only=1` against clone and restored volumes.
+
+```bash
+# Full suite including clone/restore integrity
+./odf-io-stress run
+
+# Smaller Block seed/verify extent (default 512m)
+./odf-io-stress run --seed-size 256m
+
+# Skip that path entirely
+./odf-io-stress run --skip-lifecycle
+```
+
+```yaml
+cluster:
+  write_verify: false
+  skip_lifecycle: false
+  seed_size: 512m   # Block seed/verify extent; Filesystem uses tools.fio.size
+```
 
 ### Block vs Filesystem data-integrity
 
