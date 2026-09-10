@@ -100,6 +100,46 @@ func TestReducedSuite(t *testing.T) {
 	}
 }
 
+func TestWriteVerifyJob_WritesAndVerifiesImmediately(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Tools.FIO.Size = "2G"
+	job := WriteVerifyJob(cfg)
+	if job.Name != "write-verify" {
+		t.Errorf("name = %q", job.Name)
+	}
+	if !containsArg(job.Args, "--rw=write") {
+		t.Errorf("must sequential write, got %v", job.Args)
+	}
+	if containsArgPrefix(job.Args, "--rw=rand") {
+		t.Errorf("must not be random IO, got %v", job.Args)
+	}
+	if !containsArg(job.Args, "--verify=crc32c") || !containsArg(job.Args, "--do_verify=1") || !containsArg(job.Args, "--verify_backlog=1") {
+		t.Errorf("must verify immediately after write, got %v", job.Args)
+	}
+	if containsArg(job.Args, "--verify_only=1") || containsArg(job.Args, "--do_verify=0") {
+		t.Errorf("must write then verify, not verify_only, got %v", job.Args)
+	}
+	if containsArgPrefix(job.Args, "--time_based") || containsArgPrefix(job.Args, "--runtime=") {
+		t.Errorf("must not be time-capped (would leave unverified holes), got %v", job.Args)
+	}
+	if !containsArg(job.Args, "--size=2G") {
+		t.Errorf("size should follow fio-size, got %v", job.Args)
+	}
+}
+
+func TestPhase1Jobs_WriteVerifyReplacesSuite(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Cluster.WriteVerify = true
+	jobs := Phase1Jobs("rbd", "Block", cfg)
+	if len(jobs) != 1 || jobs[0].Name != "write-verify" {
+		t.Fatalf("want single write-verify job, got %#v", jobs)
+	}
+	full := Phase1Jobs("rbd", "Filesystem", config.NewDefault())
+	if len(full) < 2 {
+		t.Fatalf("default phase1 should be the full suite, got %d jobs", len(full))
+	}
+}
+
 func TestIntegritySeedAndVerify_FilesystemKeepsFIOSize(t *testing.T) {
 	cfg := config.NewDefault()
 	cfg.Tools.FIO.Size = "2G"
