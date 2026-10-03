@@ -21,7 +21,15 @@ type PodSpec struct {
 	Privileged bool
 }
 
-func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
+// fioNonRootUID is the UID/GID used for restricted (non-privileged) FIO pods so
+// they satisfy Pod Security "restricted" without running as root.
+const fioNonRootUID int64 = 1000
+
+func boolPtr(v bool) *bool { return &v }
+
+func int64Ptr(v int64) *int64 { return &v }
+
+func buildPod(spec PodSpec) *corev1.Pod {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      spec.Name,
@@ -62,11 +70,42 @@ func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
 	}
 
 	if spec.Privileged {
-		priv := true
 		pod.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
-			Privileged: &priv,
+			Privileged: boolPtr(true),
 		}
+		return pod
 	}
+
+	applyRestrictedSecurityContext(pod)
+	return pod
+}
+
+func applyRestrictedSecurityContext(pod *corev1.Pod) {
+	fsGroupPolicy := corev1.FSGroupChangeOnRootMismatch
+	pod.Spec.SecurityContext = &corev1.PodSecurityContext{
+		RunAsNonRoot: boolPtr(true),
+		RunAsUser:    int64Ptr(fioNonRootUID),
+		FSGroup:      int64Ptr(fioNonRootUID),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+		FSGroupChangePolicy: &fsGroupPolicy,
+	}
+	pod.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
+		AllowPrivilegeEscalation: boolPtr(false),
+		RunAsNonRoot:             boolPtr(true),
+		RunAsUser:                int64Ptr(fioNonRootUID),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
+}
+
+func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
+	pod := buildPod(spec)
 
 	_, err := c.Clientset.CoreV1().Pods(spec.Namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
