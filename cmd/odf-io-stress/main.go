@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -17,6 +19,13 @@ import (
 var version = "dev"
 
 func main() {
+	rootCmd := newRootCmd()
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(exitCode(err))
+	}
+}
+
+func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "odf-io-stress",
 		Short:   "ODF IO stress testing tool for RBD and CephFS",
@@ -66,7 +75,7 @@ func main() {
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-			return workload.Run(ctx, cfg)
+			return workload.Run(ctx, cfg, configPath)
 		},
 	}
 
@@ -88,6 +97,7 @@ func main() {
 	f.String("fio-size", def.Tools.FIO.Size, "FIO file/device size")
 	f.String("seed-size", def.Cluster.SeedSize, "Block integrity seed/verify extent (sequential, non-time-based)")
 	f.StringP("prefix", "p", def.Cluster.Prefix, "Resource name prefix")
+	f.String("results-dir", def.Cluster.ResultsDir, "Directory for report.json and summary.json (default: results/<timestamp>)")
 	f.DurationP("timeout", "t", def.Cluster.WaitTimeout.Duration(), "Wait timeout for PVC/pod readiness")
 	f.Duration("clone-timeout", def.Cluster.CloneTimeout.Duration(), "Timeout for clone/restore PVC Bound waits (CephFS; RBD uses --timeout)")
 	f.StringP("format", "f", def.Tools.FIO.OutputFormat, "FIO output format: json, normal")
@@ -117,8 +127,35 @@ func main() {
 	genCmd.Flags().StringVarP(&genOut, "output", "o", "odf-io-stress.yaml", "Output path (`-` for stdout)")
 	genCmd.Flags().BoolVar(&genForce, "force", false, "Overwrite existing file")
 
-	rootCmd.AddCommand(runCmd, genCmd)
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+	optCmd := &cobra.Command{
+		Use:          "options",
+		Short:        "Print every run and generate-config option as JSON",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			doc := config.OptionsDocument{
+				SchemaVersion:  1,
+				AppTypes:       config.ValidAppTypes(nil),
+				Rules:          config.OptionRules(),
+				Run:            config.CollectFlags(runCmd.Flags()),
+				GenerateConfig: config.CollectFlags(genCmd.Flags()),
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetEscapeHTML(false)
+			enc.SetIndent("", "  ")
+			return enc.Encode(doc)
+		},
 	}
+
+	rootCmd.AddCommand(runCmd, genCmd, optCmd)
+	return rootCmd
+}
+
+// exitCode maps a run error to a process status an agent can branch on:
+// 1 jobs failed, 2 config or usage, 3 cluster failure before a clean finish.
+func exitCode(err error) int {
+	var exit *workload.ExitError
+	if errors.As(err, &exit) {
+		return exit.Code
+	}
+	return workload.EmitUsage(os.Stdout, err)
 }

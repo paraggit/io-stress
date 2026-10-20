@@ -32,9 +32,10 @@ make release-binaries
 
 ```bash
 ./odf-io-stress run [flags]
+./odf-io-stress options
 ```
 
-Run without `--config` uses built-in defaults (same effective behavior as before). Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
+`options` prints every `run` and `generate-config` flag as JSON, including defaults and the flag interactions an agent needs. `AGENTS.md` lists the same options. Run without `--config` uses built-in defaults. Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
 
 ### Merge order
 
@@ -117,6 +118,7 @@ cluster:
     storage_class: ocs-storagecluster-cephfs
   pvc_size: 10Gi
   prefix: odf-io
+  results_dir: ""    # empty → results/<timestamp> ; CLI: --results-dir
   wait_timeout: 5m
   clone_timeout: 20m           # CephFS clone/restore Bound wait (RBD uses wait_timeout)
   max_parallel_provision: 4    # in-flight clone/restore/expand ops
@@ -169,6 +171,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--fio-size` | `1G` | FIO file/device size |
 | `--seed-size` | `512m` | Block integrity seed/verify extent (sequential, not time-based) |
 | `-p, --prefix` | `odf-io` | Resource name prefix |
+| `--results-dir` | `results/<timestamp>` | Directory for `report.json` and `summary.json` |
 | `-t, --timeout` | `5m` | Wait timeout for PVC/pod readiness |
 | `--clone-timeout` | `20m` | Bound wait for clone/restore PVCs on CephFS (RBD uses `--timeout`) |
 | `-f, --format` | `json` | FIO output format (`json`, `normal`) |
@@ -381,10 +384,15 @@ If `integrity-seed` reports pass but `phase3-verify` fails on Block, check that 
 
 ## Results
 
-Per-run output is written under `results/<timestamp>/`:
+Per-run output is written under `results/<timestamp>/`, or under `--results-dir` when that flag is set:
 
 - Individual FIO job JSON files
-- Aggregated `report.json` with summary
+- Aggregated `report.json` with every job, including full FIO output
+- `summary.json`, the small document to read first
+
+Stdout is that same `summary.json` object. Logs and the human `=== RESULTS ===` block go to stderr. `--dry-run` still prints YAML manifests on stdout and does not write a summary.
+
+Exit status: `0` pass, `1` the run finished and at least one job failed, `2` bad config or usage, `3` the cluster step failed before jobs finished. A non-zero exit sets the JSON `error` field (`N job(s) failed` on exit 1). `failures[].classification` is `harness` (known verify false positive), `storage`, or `unknown`. `failures[].durationSeconds` is seconds; `report.json` `duration` remains a Go duration in nanoseconds.
 
 The `results/` directory is gitignored.
 

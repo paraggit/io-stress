@@ -18,20 +18,21 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func Run(ctx context.Context, cfg *config.Config) error {
+func Run(ctx context.Context, cfg *config.Config, configPath string) error {
 	config.ApplyWriteVerify(cfg)
 	config.ApplySetupOnly(cfg)
 
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
+	base := finalizeOpts{hasOptions: true, options: usedRunOptions(cfg, configPath)}
 	if err := os.MkdirAll(cfg.Cluster.ResultsDir, 0755); err != nil {
-		return fmt.Errorf("create results dir: %w", err)
+		return finalize(os.Stdout, "", nil, fmt.Errorf("create results dir: %w", err), base)
 	}
 
 	client, err := k8s.NewClient(cfg.Cluster.Kubeconfig)
 	if err != nil {
-		return fmt.Errorf("create k8s client: %w", err)
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("create k8s client: %w", err), base)
 	}
 
 	if !cfg.Cluster.NoCleanup {
@@ -43,22 +44,22 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	// Drop leftovers from prior incomplete runs, then recreate the namespace.
 	log.Printf("Resetting namespace %s (clearing leftovers)", cfg.Cluster.Namespace)
 	if err := k8s.ResetNamespace(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
-		return fmt.Errorf("reset namespace: %w", err)
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("reset namespace: %w", err), base)
 	}
 
 	allPods, err := setupResources(ctx, cfg, client)
 	if err != nil {
-		return err
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, base)
 	}
 
 	readyPods, err := waitForPods(ctx, cfg, client, allPods)
 	if err != nil {
-		return err
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, base)
 	}
 
 	if cfg.Cluster.SetupOnly {
 		log.Printf("Setup-only: %d PVC/pod(s) ready in namespace %s (no FIO/lifecycle; resources kept)", len(readyPods), cfg.Cluster.Namespace)
-		return nil
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, nil, base)
 	}
 
 	if cfg.Cluster.WriteVerify {
@@ -70,7 +71,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	if !cfg.Cluster.SkipFIOStress {
 		if err := runPhase1(ctx, cfg, client, readyPods, collector); err != nil {
-			return err
+			phase := base
+			phase.writeReport = true
+			phase.printHuman = true
+			phase.start = startTime
+			return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), err, phase)
 		}
 	} else {
 		log.Println("Phase 1 skipped (--skip-fio-stress)")
@@ -85,25 +90,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	results := collector.Results()
-	summary := report.ComputeSummary(results)
-	rpt := &report.RunReport{
-		StartTime: startTime,
-		EndTime:   time.Now(),
-		Results:   results,
-		Summary:   summary,
-	}
-	if err := report.WriteJSON(cfg.Cluster.ResultsDir, rpt); err != nil {
-		log.Printf("warning: failed to write report: %v", err)
-	}
-
-	report.PrintSummary(results)
-	log.Printf("Results in %s", cfg.Cluster.ResultsDir)
-
-	if summary.Failed > 0 {
-		return fmt.Errorf("%d job(s) failed", summary.Failed)
-	}
-	return nil
+	done := base
+	done.writeReport = true
+	done.printHuman = true
+	done.start = startTime
+	return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), nil, done)
 }
 
 func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client) ([]PodInfo, error) {
