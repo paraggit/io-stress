@@ -23,12 +23,12 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
 	if err := os.MkdirAll(cfg.Cluster.ResultsDir, 0755); err != nil {
-		return fmt.Errorf("create results dir: %w", err)
+		return finalize(os.Stdout, "", nil, fmt.Errorf("create results dir: %w", err), finalizeOpts{})
 	}
 
 	client, err := k8s.NewClient(cfg.Cluster.Kubeconfig)
 	if err != nil {
-		return fmt.Errorf("create k8s client: %w", err)
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("create k8s client: %w", err), finalizeOpts{})
 	}
 
 	if !cfg.Cluster.NoCleanup {
@@ -40,17 +40,17 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	// Drop leftovers from prior incomplete runs, then recreate the namespace.
 	log.Printf("Resetting namespace %s (clearing leftovers)", cfg.Cluster.Namespace)
 	if err := k8s.ResetNamespace(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
-		return fmt.Errorf("reset namespace: %w", err)
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("reset namespace: %w", err), finalizeOpts{})
 	}
 
 	allPods, err := setupResources(ctx, cfg, client)
 	if err != nil {
-		return err
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, finalizeOpts{})
 	}
 
 	readyPods, err := waitForPods(ctx, cfg, client, allPods)
 	if err != nil {
-		return err
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, finalizeOpts{})
 	}
 
 	collector := report.NewCollector()
@@ -58,7 +58,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	if !cfg.Cluster.SkipFIOStress {
 		if err := runPhase1(ctx, cfg, client, readyPods, collector); err != nil {
-			return err
+			return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), err, finalizeOpts{
+				writeReport: true,
+				printHuman:  true,
+				start:       startTime,
+			})
 		}
 	} else {
 		log.Println("Phase 1 skipped (--skip-fio-stress)")
@@ -73,25 +77,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	results := collector.Results()
-	summary := report.ComputeSummary(results)
-	rpt := &report.RunReport{
-		StartTime: startTime,
-		EndTime:   time.Now(),
-		Results:   results,
-		Summary:   summary,
-	}
-	if err := report.WriteJSON(cfg.Cluster.ResultsDir, rpt); err != nil {
-		log.Printf("warning: failed to write report: %v", err)
-	}
-
-	report.PrintSummary(results)
-	log.Printf("Results in %s", cfg.Cluster.ResultsDir)
-
-	if summary.Failed > 0 {
-		return fmt.Errorf("%d job(s) failed", summary.Failed)
-	}
-	return nil
+	return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), nil, finalizeOpts{
+		writeReport: true,
+		printHuman:  true,
+		start:       startTime,
+	})
 }
 
 func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client) ([]PodInfo, error) {

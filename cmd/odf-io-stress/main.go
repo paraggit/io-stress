@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -86,6 +87,7 @@ func main() {
 	f.String("fio-size", def.Tools.FIO.Size, "FIO file/device size")
 	f.String("seed-size", def.Cluster.SeedSize, "Block integrity seed/verify extent (sequential, non-time-based)")
 	f.StringP("prefix", "p", def.Cluster.Prefix, "Resource name prefix")
+	f.String("results-dir", def.Cluster.ResultsDir, "Directory for report.json and summary.json (default: results/<timestamp>)")
 	f.DurationP("timeout", "t", def.Cluster.WaitTimeout.Duration(), "Wait timeout for PVC/pod readiness")
 	f.Duration("clone-timeout", def.Cluster.CloneTimeout.Duration(), "Timeout for clone/restore PVC Bound waits (CephFS; RBD uses --timeout)")
 	f.StringP("format", "f", def.Tools.FIO.OutputFormat, "FIO output format: json, normal")
@@ -115,6 +117,16 @@ func main() {
 
 	rootCmd.AddCommand(runCmd, genCmd)
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+// exitCode maps a run error to a process status an agent can branch on:
+// 1 jobs failed, 2 config or usage, 3 cluster failure before a clean finish.
+func exitCode(err error) int {
+	var exit *workload.ExitError
+	if errors.As(err, &exit) {
+		return exit.Code
+	}
+	return workload.EmitUsage(os.Stdout, err)
 }

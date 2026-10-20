@@ -177,6 +177,20 @@ func TestApplyChangedFlags_CloneTimeoutAndProvisionLimit(t *testing.T) {
 	}
 }
 
+func TestApplyChangedFlags_ResultsDir(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("results-dir", "", "")
+	_ = fs.Parse([]string{"--results-dir", "results/smoke"})
+
+	cfg := NewDefault()
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.ResultsDir != "results/smoke" {
+		t.Errorf("ResultsDir = %q, want results/smoke", cfg.Cluster.ResultsDir)
+	}
+}
+
 func TestApplyChangedFlags_SeedSize(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	fs.String("seed-size", "", "")

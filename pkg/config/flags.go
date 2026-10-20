@@ -67,6 +67,9 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	get("prefix", func() {
 		cfg.Cluster.Prefix, err = fs.GetString("prefix")
 	})
+	get("results-dir", func() {
+		cfg.Cluster.ResultsDir, err = fs.GetString("results-dir")
+	})
 	get("timeout", func() {
 		var d time.Duration
 		d, err = fs.GetDuration("timeout")
