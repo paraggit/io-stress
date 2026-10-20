@@ -18,17 +18,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func Run(ctx context.Context, cfg *config.Config) error {
+func Run(ctx context.Context, cfg *config.Config, configPath string) error {
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
+	base := finalizeOpts{hasOptions: true, options: usedRunOptions(cfg, configPath)}
 	if err := os.MkdirAll(cfg.Cluster.ResultsDir, 0755); err != nil {
-		return finalize(os.Stdout, "", nil, fmt.Errorf("create results dir: %w", err), finalizeOpts{})
+		return finalize(os.Stdout, "", nil, fmt.Errorf("create results dir: %w", err), base)
 	}
 
 	client, err := k8s.NewClient(cfg.Cluster.Kubeconfig)
 	if err != nil {
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("create k8s client: %w", err), finalizeOpts{})
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("create k8s client: %w", err), base)
 	}
 
 	if !cfg.Cluster.NoCleanup {
@@ -40,17 +41,17 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	// Drop leftovers from prior incomplete runs, then recreate the namespace.
 	log.Printf("Resetting namespace %s (clearing leftovers)", cfg.Cluster.Namespace)
 	if err := k8s.ResetNamespace(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("reset namespace: %w", err), finalizeOpts{})
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("reset namespace: %w", err), base)
 	}
 
 	allPods, err := setupResources(ctx, cfg, client)
 	if err != nil {
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, finalizeOpts{})
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, base)
 	}
 
 	readyPods, err := waitForPods(ctx, cfg, client, allPods)
 	if err != nil {
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, finalizeOpts{})
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, base)
 	}
 
 	collector := report.NewCollector()
@@ -58,11 +59,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	if !cfg.Cluster.SkipFIOStress {
 		if err := runPhase1(ctx, cfg, client, readyPods, collector); err != nil {
-			return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), err, finalizeOpts{
-				writeReport: true,
-				printHuman:  true,
-				start:       startTime,
-			})
+			phase := base
+			phase.writeReport = true
+			phase.printHuman = true
+			phase.start = startTime
+			return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), err, phase)
 		}
 	} else {
 		log.Println("Phase 1 skipped (--skip-fio-stress)")
@@ -77,11 +78,11 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), nil, finalizeOpts{
-		writeReport: true,
-		printHuman:  true,
-		start:       startTime,
-	})
+	done := base
+	done.writeReport = true
+	done.printHuman = true
+	done.start = startTime
+	return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), nil, done)
 }
 
 func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client) ([]PodInfo, error) {

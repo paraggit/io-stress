@@ -30,6 +30,8 @@ type finalizeOpts struct {
 	writeReport bool
 	printHuman  bool
 	start       time.Time
+	hasOptions  bool
+	options     report.UsedOptions
 }
 
 // finalize writes report.json when requested, then writes the agent summary
@@ -72,6 +74,10 @@ func finalize(w io.Writer, dir string, results []report.JobResult, runErr error,
 	}
 
 	agent := report.BuildAgentSummary(code, dir, results, runErr, reportWritten)
+	if opts.hasOptions {
+		recorded := opts.options
+		agent.Options = &recorded
+	}
 	if opts.printHuman {
 		report.PrintSummary(results)
 	}

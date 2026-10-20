@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -18,6 +19,13 @@ import (
 var version = "dev"
 
 func main() {
+	rootCmd := newRootCmd()
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(exitCode(err))
+	}
+}
+
+func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "odf-io-stress",
 		Short:   "ODF IO stress testing tool for RBD and CephFS",
@@ -65,7 +73,7 @@ func main() {
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-			return workload.Run(ctx, cfg)
+			return workload.Run(ctx, cfg, configPath)
 		},
 	}
 
@@ -115,10 +123,27 @@ func main() {
 	genCmd.Flags().StringVarP(&genOut, "output", "o", "odf-io-stress.yaml", "Output path (`-` for stdout)")
 	genCmd.Flags().BoolVar(&genForce, "force", false, "Overwrite existing file")
 
-	rootCmd.AddCommand(runCmd, genCmd)
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(exitCode(err))
+	optCmd := &cobra.Command{
+		Use:          "options",
+		Short:        "Print every run and generate-config option as JSON",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			doc := config.OptionsDocument{
+				SchemaVersion:  1,
+				AppTypes:       config.ValidAppTypes(nil),
+				Rules:          config.OptionRules(),
+				Run:            config.CollectFlags(runCmd.Flags()),
+				GenerateConfig: config.CollectFlags(genCmd.Flags()),
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetEscapeHTML(false)
+			enc.SetIndent("", "  ")
+			return enc.Encode(doc)
+		},
 	}
+
+	rootCmd.AddCommand(runCmd, genCmd, optCmd)
+	return rootCmd
 }
 
 // exitCode maps a run error to a process status an agent can branch on:

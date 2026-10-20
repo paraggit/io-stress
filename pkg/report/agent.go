@@ -35,6 +35,43 @@ type AgentSummary struct {
 	Summary       Summary        `json:"summary"`
 	Failures      []FailureBrief `json:"failures"`
 	Error         string         `json:"error,omitempty"`
+	Options       *UsedOptions   `json:"options,omitempty"`
+}
+
+// UsedOptions is the effective run configuration. JSON names match long flag names.
+type UsedOptions struct {
+	Config               string   `json:"config,omitempty"`
+	Kubeconfig           string   `json:"kubeconfig"`
+	NumPVC               int      `json:"num-pvc,omitempty"`
+	RBDNumPVC            int      `json:"rbd-num-pvc"`
+	CephFSNumPVC         int      `json:"cephfs-num-pvc"`
+	Namespace            string   `json:"namespace"`
+	RBDStorageClass      string   `json:"rbd-storage-class"`
+	CephFSStorageClass   string   `json:"cephfs-storage-class"`
+	PVCSize              string   `json:"pvc-size"`
+	Image                string   `json:"image"`
+	Runtime              int      `json:"runtime"`
+	BlockSize            string   `json:"bs"`
+	Offset               string   `json:"offset"`
+	FIOSize              string   `json:"fio-size"`
+	SeedSize             string   `json:"seed-size"`
+	Prefix               string   `json:"prefix"`
+	ResultsDir           string   `json:"results-dir,omitempty"`
+	Timeout              string   `json:"timeout"`
+	CloneTimeout         string   `json:"clone-timeout"`
+	Format               string   `json:"format"`
+	NoCleanup            bool     `json:"no-cleanup"`
+	DryRun               bool     `json:"dry-run"`
+	LifecycleInterval    int      `json:"lifecycle-interval"`
+	SkipLifecycle        bool     `json:"skip-lifecycle"`
+	SkipFIOStress        bool     `json:"skip-fio-stress"`
+	ExpandFactor         int      `json:"expand-factor"`
+	SnapshotClass        string   `json:"snapshot-class"`
+	SustainRuntime       int      `json:"sustain-runtime"`
+	MaxParallel          int      `json:"max-parallel"`
+	MaxParallelProvision int      `json:"max-parallel-provision"`
+	Sequential           bool     `json:"sequential"`
+	AppType              []string `json:"app-type,omitempty"`
 }
 
 type FailureBrief struct {

@@ -32,9 +32,10 @@ make release-binaries
 
 ```bash
 ./odf-io-stress run [flags]
+./odf-io-stress options
 ```
 
-Run without `--config` uses built-in defaults (same effective behavior as before). Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
+`options` prints every `run` and `generate-config` flag as JSON, including defaults and the flag interactions an agent needs. `AGENTS.md` lists the same options. Run without `--config` uses built-in defaults. Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
 
 ### Merge order
 
@@ -156,9 +157,11 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `-p, --prefix` | `odf-io` | Resource name prefix |
 | `--results-dir` | `results/<timestamp>` | Directory for `report.json` and `summary.json` |
 | `-t, --timeout` | `5m` | Wait timeout for PVC/pod readiness |
+| `--clone-timeout` | `20m` | Bound wait for clone/restore PVCs on CephFS (RBD uses `--timeout`) |
 | `-f, --format` | `json` | FIO output format (`json`, `normal`) |
 | `--sequential` | `false` | Run FIO jobs sequentially (`tools.fio.parallel=false`) |
 | `--max-parallel` | `0` | Max concurrent pods (`0` = unlimited) |
+| `--max-parallel-provision` | `4` | Max in-flight clone/restore/expand operations |
 | `--no-cleanup` | `false` | Skip resource cleanup on exit |
 | `--dry-run` | `false` | Emit YAML manifests only |
 | `--lifecycle-interval` | `4` | Run lifecycle ops on every Nth pod |
