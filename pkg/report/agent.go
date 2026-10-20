@@ -65,6 +65,8 @@ type UsedOptions struct {
 	LifecycleInterval    int      `json:"lifecycle-interval"`
 	SkipLifecycle        bool     `json:"skip-lifecycle"`
 	SkipFIOStress        bool     `json:"skip-fio-stress"`
+	WriteVerify          bool     `json:"write-verify"`
+	SetupOnly            bool     `json:"setup-only"`
 	ExpandFactor         int      `json:"expand-factor"`
 	SnapshotClass        string   `json:"snapshot-class"`
 	SustainRuntime       int      `json:"sustain-runtime"`

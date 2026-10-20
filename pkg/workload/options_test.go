@@ -16,6 +16,7 @@ func TestUsedRunOptions(t *testing.T) {
 	cfg.Cluster.ResultsDir = "results/smoke"
 	cfg.Tools.FIO.Runtime = 30
 	cfg.Cluster.SkipLifecycle = true
+	cfg.Cluster.WriteVerify = true
 	cfg.Cluster.AppTypes = []string{"vm"}
 	cfg.Tools.FIO.Parallel = false
 
@@ -23,7 +24,7 @@ func TestUsedRunOptions(t *testing.T) {
 	if got.Config != "my.yaml" || got.RBDNumPVC != 1 || got.CephFSNumPVC != 0 || got.NumPVC != 0 {
 		t.Fatalf("counts/config = %+v", got)
 	}
-	if got.Runtime != 30 || got.ResultsDir != "results/smoke" || !got.SkipLifecycle || !got.Sequential {
+	if got.Runtime != 30 || got.ResultsDir != "results/smoke" || !got.SkipLifecycle || !got.WriteVerify || got.SetupOnly || !got.Sequential {
 		t.Fatalf("run knobs = %+v", got)
 	}
 	if len(got.AppType) != 1 || got.AppType[0] != "vm" {

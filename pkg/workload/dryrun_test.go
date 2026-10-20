@@ -47,4 +47,13 @@ func TestDryRun(t *testing.T) {
 	if !strings.Contains(output, "cephfs") {
 		t.Error("dry-run output should contain CephFS resources")
 	}
+	if !strings.Contains(output, "runAsNonRoot: true") {
+		t.Error("filesystem pods should set runAsNonRoot for restricted PSS")
+	}
+	if !strings.Contains(output, "allowPrivilegeEscalation: false") {
+		t.Error("filesystem pods should disable privilege escalation")
+	}
+	if !strings.Contains(output, `drop: ["ALL"]`) {
+		t.Error("filesystem pods should drop all capabilities")
+	}
 }

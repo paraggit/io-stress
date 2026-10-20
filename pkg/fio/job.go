@@ -179,6 +179,44 @@ func JobsForVolume(storageType string, volumeMode string, cfg *config.Config) []
 	return jobs
 }
 
+// WriteVerifyJob writes a region then verifies it in the same FIO job
+// (--do_verify=1, --verify_backlog=1). Not verify_only: data is written first.
+func WriteVerifyJob(cfg *config.Config) Job {
+	size := "1G"
+	if cfg != nil && cfg.Tools.FIO.Size != "" {
+		size = cfg.Tools.FIO.Size
+	}
+	return Job{
+		Name:     "write-verify",
+		Category: "integrity",
+		Args: []string{
+			"--rw=write",
+			fmt.Sprintf("--bs=%s", IntegritySeedBS),
+			fmt.Sprintf("--size=%s", size),
+			"--ioengine=libaio",
+			"--direct=1",
+			fmt.Sprintf("--iodepth=%s", IntegritySeedIODepth),
+			"--verify=crc32c",
+			"--do_verify=1",
+			"--verify_backlog=1",
+			"--verify_fatal=1",
+			"--verify_dump=1",
+			"--serialize_overlap=1",
+			fmt.Sprintf("--randseed=%s", IntegritySeedRandSeed),
+			"--group_reporting=1",
+		},
+	}
+}
+
+// Phase1Jobs is the FIO suite for phase 1. WriteVerify replaces the full
+// stress suite with a single write+immediate-verify job.
+func Phase1Jobs(storageType, volumeMode string, cfg *config.Config) []Job {
+	if cfg != nil && cfg.Cluster.WriteVerify {
+		return []Job{WriteVerifyJob(cfg)}
+	}
+	return JobsForVolume(storageType, volumeMode, cfg)
+}
+
 func ReducedSuite(target string, cfg *config.Config) []Job {
 	_ = target
 	return PatternsToJobs(cfg.Tools.FIO.Suites.Lifecycle, cfg.Tools.FIO)

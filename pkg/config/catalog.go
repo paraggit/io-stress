@@ -47,6 +47,7 @@ func OptionRules() []string {
 		"-n/--num-pvc sets both RBD and CephFS counts. A per-backend flag set in the same command overrides that side.",
 		"--sequential sets parallel FIO off. --sequential=false turns parallel back on.",
 		"--app-type is a comma-separated list of tools.fio.app_suites profiles. Built-ins are nfs, vm, database, messaging, and ai. The selected suites run on every PVC; standard suites and CephFS RWX are skipped.",
+		"--write-verify runs one sequential write that crc32c-verifies each block and skips lifecycle. --setup-only creates PVCs and pods, then exits without FIO. If both are set, setup-only wins and also sets --no-cleanup.",
 		"Every run deletes and recreates --namespace (default odf-io-stress) at the start. --no-cleanup skips cleanup on exit and does not stop that reset.",
 		"--dry-run prints YAML manifests on stdout and does not write summary.json.",
 		"--results-dir empty means results/<timestamp>. Pass it so the output path is known before the run.",

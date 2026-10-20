@@ -17,7 +17,9 @@ import (
 func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods []PodInfo, collector *report.Collector) error {
 	log.Println("=== PHASE 1: FIO STRESS ===")
 	useAppTypes := len(cfg.Cluster.AppTypes) > 0
-	if useAppTypes {
+	if cfg.Cluster.WriteVerify {
+		log.Printf("Write-verify mode: sequential write + immediate crc32c verify on all %d PVC/pod(s)", len(pods))
+	} else if useAppTypes {
 		log.Printf("App-type mode: running profile(s) %v on all %d PVC/pod(s)", cfg.Cluster.AppTypes, len(pods))
 	}
 
@@ -29,7 +31,7 @@ func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods
 	for _, pod := range pods {
 		pod := pod
 		g.Go(func() error {
-			if useAppTypes {
+			if !cfg.Cluster.WriteVerify && useAppTypes {
 				return runAppTypesOnPod(gCtx, cfg, client, pod, collector)
 			}
 			return runFIOOnPod(gCtx, cfg, client, pod, collector)
@@ -45,7 +47,7 @@ func runPhase1(ctx context.Context, cfg *config.Config, client *k8s.Client, pods
 	}
 
 	// CephFS RWX is part of the standard suite path only.
-	if !useAppTypes && hasCephFS(pods) {
+	if !useAppTypes && !cfg.Cluster.WriteVerify && hasCephFS(pods) {
 		if err := runCephFSRWXTests(ctx, cfg, client, pods, collector); err != nil {
 			log.Printf("CephFS RWX tests completed with errors: %v", err)
 		}
@@ -85,7 +87,7 @@ func runAppTypesOnPod(ctx context.Context, cfg *config.Config, client *k8s.Clien
 }
 
 func runFIOOnPod(ctx context.Context, cfg *config.Config, client *k8s.Client, pod PodInfo, collector *report.Collector) error {
-	jobs := fio.JobsForVolume(pod.StorageType, pod.VolumeModeStr(), cfg)
+	jobs := fio.Phase1Jobs(pod.StorageType, pod.VolumeModeStr(), cfg)
 	for _, job := range jobs {
 		select {
 		case <-ctx.Done():

@@ -35,6 +35,8 @@ func usedRunOptions(cfg *config.Config, configPath string) report.UsedOptions {
 		LifecycleInterval:    cfg.Cluster.LifecycleInterval,
 		SkipLifecycle:        cfg.Cluster.SkipLifecycle,
 		SkipFIOStress:        cfg.Cluster.SkipFIOStress,
+		WriteVerify:          cfg.Cluster.WriteVerify,
+		SetupOnly:            cfg.Cluster.SetupOnly,
 		ExpandFactor:         cfg.Cluster.ExpandFactor,
 		SnapshotClass:        cfg.Cluster.SnapshotClass,
 		SustainRuntime:       cfg.Cluster.SustainRuntime,
