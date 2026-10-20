@@ -27,6 +27,19 @@ func TestOptionsCommandMatchesFlagsAndGuide(t *testing.T) {
 	if doc.SchemaVersion != 1 {
 		t.Fatalf("schemaVersion = %d", doc.SchemaVersion)
 	}
+	wantRecipes := []string{"smoke", "write-verify", "app-vm", "app-database", "full"}
+	if len(doc.Recipes) != len(wantRecipes) {
+		t.Fatalf("recipes = %d, want %d", len(doc.Recipes), len(wantRecipes))
+	}
+	for i, name := range wantRecipes {
+		r := doc.Recipes[i]
+		if r.Name != name || len(r.Argv) == 0 || r.DurationSeconds <= 0 || !r.DeletesNamespace {
+			t.Fatalf("recipe[%d] = %+v", i, r)
+		}
+	}
+	if doc.Recipes[0].DurationSeconds >= doc.Recipes[len(doc.Recipes)-1].DurationSeconds {
+		t.Fatalf("smoke duration %d should be below full %d", doc.Recipes[0].DurationSeconds, doc.Recipes[len(doc.Recipes)-1].DurationSeconds)
+	}
 	for _, want := range []string{"nfs", "vm", "database", "messaging", "ai"} {
 		if !contains(doc.AppTypes, want) {
 			t.Errorf("appTypes missing %s: %v", want, doc.AppTypes)

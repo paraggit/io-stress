@@ -36,6 +36,7 @@ func newRootCmd() *cobra.Command {
 
 	var (
 		configPath string
+		recipe     string
 		genOut     string
 		genForce   bool
 	)
@@ -59,6 +60,11 @@ func newRootCmd() *cobra.Command {
 					log.Printf("WARNING: tools.smallfiles is set but not supported yet; ignoring")
 				}
 			}
+			if recipe != "" {
+				if err := config.ApplyRecipe(cfg, recipe); err != nil {
+					return err
+				}
+			}
 			if err := config.ApplyChangedFlags(cmd.Flags(), cfg); err != nil {
 				return err
 			}
@@ -75,13 +81,14 @@ func newRootCmd() *cobra.Command {
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-			return workload.Run(ctx, cfg, configPath)
+			return workload.Run(ctx, cfg, configPath, recipe)
 		},
 	}
 
 	def := config.NewDefault()
 	f := runCmd.Flags()
 	f.StringVar(&configPath, "config", "", "Path to YAML/JSON config file")
+	f.StringVar(&recipe, "recipe", "", "Named run: smoke, write-verify, app-vm, app-database, or full. Explicit flags override it")
 	f.String("kubeconfig", def.Cluster.Kubeconfig, "Path to kubeconfig (default: KUBECONFIG or ~/.kube/config)")
 	f.IntP("num-pvc", "n", def.Cluster.RBD.NumPVC, "Set both RBD and CephFS PVC counts")
 	f.Int("rbd-num-pvc", def.Cluster.RBD.NumPVC, "RBD PVC/pod pairs (alone: CephFS=0)")
@@ -136,6 +143,7 @@ func newRootCmd() *cobra.Command {
 				SchemaVersion:  1,
 				AppTypes:       config.ValidAppTypes(nil),
 				Rules:          config.OptionRules(),
+				Recipes:        config.Recipes(),
 				Run:            config.CollectFlags(runCmd.Flags()),
 				GenerateConfig: config.CollectFlags(genCmd.Flags()),
 			}

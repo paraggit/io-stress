@@ -41,9 +41,10 @@ make release-binaries
 
 1. Built-in defaults (`NewDefault()`)
 2. Config file (when `--config` is set)
-3. Explicitly set CLI flags only (`Changed()`)
-4. Derived defaults (e.g. `sustain_runtime = runtime*3` when unset)
-5. Validation
+3. `--recipe`, when set (`smoke`, `write-verify`, `app-vm`, `app-database`, `full`)
+4. Explicitly set CLI flags only (`Changed()`), which override the recipe
+5. Derived defaults (e.g. `sustain_runtime = runtime*3` when unset)
+6. Validation
 
 ### Examples
 
@@ -52,7 +53,13 @@ make release-binaries
 ./odf-io-stress run
 
 # Smaller / faster smoke run
-./odf-io-stress run -n 2 --runtime 30
+./odf-io-stress run --recipe smoke --results-dir results/smoke
+
+# App workload on one RBD volume
+./odf-io-stress run --recipe app-vm --results-dir results/app-vm
+
+# Recipe plus an override
+./odf-io-stress run --recipe smoke --runtime 15
 
 # Per-backend PVC counts
 ./odf-io-stress run --rbd-num-pvc 2 --cephfs-num-pvc 6
@@ -156,6 +163,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--config` | _(none)_ | Path to YAML (`.yaml`/`.yml`) or JSON (`.json`) config file |
+| `--recipe` | _(none)_ | Named run: `smoke`, `write-verify`, `app-vm`, `app-database`, `full`. Other flags override it. `odf-io-stress options` lists each recipe |
 | `--kubeconfig` | _(default loading)_ | Path to kubeconfig (else `KUBECONFIG` or `~/.kube/config`) |
 | `-n, --num-pvc` | `4` | Set both RBD and CephFS PVC/pod counts |
 | `--rbd-num-pvc` | `4` | RBD PVC/pod pairs. If set alone (without `--cephfs-num-pvc` / `-n`), CephFS is set to `0` |

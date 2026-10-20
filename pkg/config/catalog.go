@@ -15,6 +15,7 @@ type OptionsDocument struct {
 	SchemaVersion  int        `json:"schemaVersion"`
 	AppTypes       []string   `json:"appTypes"`
 	Rules          []string   `json:"rules"`
+	Recipes        []Recipe   `json:"recipes"`
 	Run            []FlagInfo `json:"run"`
 	GenerateConfig []FlagInfo `json:"generateConfig"`
 }
@@ -42,7 +43,8 @@ func CollectFlags(fs *pflag.FlagSet) []FlagInfo {
 // OptionRules are the flag interactions an agent cannot learn from flag help alone.
 func OptionRules() []string {
 	return []string{
-		"Merge order: built-in defaults, then --config, then only flags explicitly set on the command line. sustain-runtime is recomputed as runtime×3 only when it is still 0; the built-in default is 180.",
+		"Merge order: built-in defaults, then --config, then --recipe, then only flags explicitly set on the command line. sustain-runtime is recomputed as runtime×3 only when it is still 0; the built-in default is 180.",
+		"--recipe applies a named run (smoke, write-verify, app-vm, app-database, full) after --config and before explicit flags, so flags you set override the recipe. odf-io-stress options lists each recipe's argv, PVC counts, namespace deletion, and approximate durationSeconds.",
 		"--rbd-num-pvc alone (without --cephfs-num-pvc and without -n/--num-pvc) sets the CephFS count to 0. --cephfs-num-pvc alone sets the RBD count to 0.",
 		"-n/--num-pvc sets both RBD and CephFS counts. A per-backend flag set in the same command overrides that side.",
 		"--sequential sets parallel FIO off. --sequential=false turns parallel back on.",
