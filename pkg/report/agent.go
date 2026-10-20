@@ -41,6 +41,7 @@ type AgentSummary struct {
 // UsedOptions is the effective run configuration. JSON names match long flag names.
 type UsedOptions struct {
 	Config               string   `json:"config,omitempty"`
+	Recipe               string   `json:"recipe,omitempty"`
 	Kubeconfig           string   `json:"kubeconfig"`
 	NumPVC               int      `json:"num-pvc,omitempty"`
 	RBDNumPVC            int      `json:"rbd-num-pvc"`

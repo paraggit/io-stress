@@ -18,14 +18,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func Run(ctx context.Context, cfg *config.Config, configPath string) error {
+func Run(ctx context.Context, cfg *config.Config, configPath, recipe string) error {
 	config.ApplyWriteVerify(cfg)
 	config.ApplySetupOnly(cfg)
 
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
 	}
-	base := finalizeOpts{hasOptions: true, options: usedRunOptions(cfg, configPath)}
+	base := finalizeOpts{hasOptions: true, options: usedRunOptions(cfg, configPath, recipe)}
 	if err := os.MkdirAll(cfg.Cluster.ResultsDir, 0755); err != nil {
 		return finalize(os.Stdout, "", nil, fmt.Errorf("create results dir: %w", err), base)
 	}

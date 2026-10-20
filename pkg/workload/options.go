@@ -6,12 +6,13 @@ import (
 )
 
 // usedRunOptions is the effective option set for a run, after defaults, config, and flags.
-func usedRunOptions(cfg *config.Config, configPath string) report.UsedOptions {
+func usedRunOptions(cfg *config.Config, configPath, recipe string) report.UsedOptions {
 	if cfg == nil {
 		return report.UsedOptions{}
 	}
 	opts := report.UsedOptions{
 		Config:               configPath,
+		Recipe:               recipe,
 		Kubeconfig:           cfg.Cluster.Kubeconfig,
 		RBDNumPVC:            cfg.Cluster.RBD.NumPVC,
 		CephFSNumPVC:         cfg.Cluster.CephFS.NumPVC,

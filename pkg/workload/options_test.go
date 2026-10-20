@@ -20,8 +20,8 @@ func TestUsedRunOptions(t *testing.T) {
 	cfg.Cluster.AppTypes = []string{"vm"}
 	cfg.Tools.FIO.Parallel = false
 
-	got := usedRunOptions(cfg, "my.yaml")
-	if got.Config != "my.yaml" || got.RBDNumPVC != 1 || got.CephFSNumPVC != 0 || got.NumPVC != 0 {
+	got := usedRunOptions(cfg, "my.yaml", "smoke")
+	if got.Config != "my.yaml" || got.Recipe != "smoke" || got.RBDNumPVC != 1 || got.CephFSNumPVC != 0 || got.NumPVC != 0 {
 		t.Fatalf("counts/config = %+v", got)
 	}
 	if got.Runtime != 30 || got.ResultsDir != "results/smoke" || !got.SkipLifecycle || !got.WriteVerify || got.SetupOnly || !got.Sequential {
@@ -36,7 +36,7 @@ func TestUsedRunOptions(t *testing.T) {
 
 	cfg.Cluster.RBD.NumPVC = 2
 	cfg.Cluster.CephFS.NumPVC = 2
-	if usedRunOptions(cfg, "").NumPVC != 2 {
+	if usedRunOptions(cfg, "", "").NumPVC != 2 {
 		t.Fatal("num-pvc should be set when both backends match")
 	}
 }

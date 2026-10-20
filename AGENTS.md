@@ -13,7 +13,8 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 
 ## Option rules
 
-- Merge order: built-in defaults, then --config, then only flags explicitly set on the command line. sustain-runtime is recomputed as runtime×3 only when it is still 0; the built-in default is 180.
+- Merge order: built-in defaults, then --config, then --recipe, then only flags explicitly set on the command line. sustain-runtime is recomputed as runtime×3 only when it is still 0; the built-in default is 180.
+- --recipe applies a named run (smoke, write-verify, app-vm, app-database, full) after --config and before explicit flags, so flags you set override the recipe. odf-io-stress options lists each recipe's argv, PVC counts, namespace deletion, and approximate durationSeconds.
 - --rbd-num-pvc alone (without --cephfs-num-pvc and without -n/--num-pvc) sets the CephFS count to 0. --cephfs-num-pvc alone sets the RBD count to 0.
 - -n/--num-pvc sets both RBD and CephFS counts. A per-backend flag set in the same command overrides that side.
 - --sequential sets parallel FIO off. --sequential=false turns parallel back on.
@@ -33,6 +34,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `--config` | empty | YAML (`.yaml`/`.yml`) or JSON (`.json`) config file |
+| `--recipe` | empty | Named run: `smoke`, `write-verify`, `app-vm`, `app-database`, `full`. Flags set on the command override it |
 | `--kubeconfig` | empty | Kubeconfig path; empty uses `KUBECONFIG` or `~/.kube/config` |
 | `-n, --num-pvc` | `4` | Set both RBD and CephFS PVC counts |
 | `--rbd-num-pvc` | `4` | RBD PVC/pod pairs. Alone, CephFS becomes 0 |
@@ -67,10 +69,21 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--sequential` | `false` | Run FIO jobs one at a time |
 | `--app-type` | empty | Comma-separated profiles: `nfs`, `vm`, `database`, `messaging`, `ai` |
 
-Smoke run:
+## Recipes
+
+`odf-io-stress options` prints `recipes[]` with `argv`, PVC counts, `deletesNamespace`, and `durationSeconds`. Every recipe deletes and recreates namespace `odf-io-stress` at the start. `durationSeconds` is a rough wall-clock budget: pods run together, jobs on one pod run one after another.
+
+| Recipe | Run |
+|--------|-----|
+| `smoke` | 1 RBD volume, 30s FIO, no lifecycle |
+| `write-verify` | 1 RBD volume, one crc32c write-and-verify, no lifecycle |
+| `app-vm` | `vm` profile on 1 RBD volume, lifecycle skipped |
+| `app-database` | `database` profile on 1 RBD volume, lifecycle skipped |
+| `full` | 4 RBD and 4 CephFS, stress, lifecycle, and verify |
 
 ```bash
-odf-io-stress run --rbd-num-pvc 1 --cephfs-num-pvc 0 --runtime 30 --skip-lifecycle --results-dir results/smoke
+odf-io-stress run --recipe app-vm --results-dir results/app-vm
+odf-io-stress run --recipe smoke --runtime 15 --results-dir results/smoke
 ```
 
 ## generate-config options
