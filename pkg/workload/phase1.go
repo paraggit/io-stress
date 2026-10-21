@@ -168,7 +168,7 @@ func runCephFSRWXTests(ctx context.Context, cfg *config.Config, client *k8s.Clie
 	}
 
 	rwxJobs := fio.CephFSRWXJobs(cfg)
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := newProvisionGroup(ctx, cfg)
 
 	for _, pod := range cephfsPods {
 		pod := pod

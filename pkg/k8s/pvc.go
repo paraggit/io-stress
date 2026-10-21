@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/watch"
 )
 
 // ProvisionTimeoutError is a clone/restore Bound wait that expired while the
@@ -95,30 +94,58 @@ func CreatePVC(ctx context.Context, c *Client, spec PVCSpec) error {
 }
 
 func WaitPVCBound(ctx context.Context, c *Client, namespace, name string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	watcher, err := c.Clientset.CoreV1().PersistentVolumeClaims(namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: "metadata.name=" + name,
-	})
-	if err != nil {
-		return fmt.Errorf("watch PVC %s: %w", name, err)
-	}
-	defer watcher.Stop()
+	// Poll with Get. One Watch per PVC fails once the apiserver drops
+	// connections, which happens as soon as many claims are created together.
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
-	for event := range watcher.ResultChan() {
-		if event.Type == watch.Error {
-			return fmt.Errorf("watch error for PVC %s", name)
-		}
-		pvc, ok := event.Object.(*corev1.PersistentVolumeClaim)
-		if !ok {
-			continue
-		}
-		if pvc.Status.Phase == corev1.ClaimBound {
+	bound, err := pvcIsBound(ctx, c, namespace, name)
+	if bound || err != nil {
+		if bound {
 			return nil
 		}
+		return err
 	}
-	return fmt.Errorf("PVC %s did not reach Bound within %v", name, timeout)
+	for {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("PVC %s did not reach Bound within %v", name, timeout)
+			}
+			return ctx.Err()
+		case <-ticker.C:
+			bound, err := pvcIsBound(ctx, c, namespace, name)
+			if bound {
+				return nil
+			}
+			if err != nil {
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					return fmt.Errorf("PVC %s did not reach Bound within %v", name, timeout)
+				}
+				return err
+			}
+		}
+	}
+}
+
+func pvcIsBound(ctx context.Context, c *Client, namespace, name string) (bool, error) {
+	pvc, err := c.Clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return false, fmt.Errorf("get PVC %s: %w", name, err)
+	}
+	return pvc.Status.Phase == corev1.ClaimBound, nil
 }
 
 // WaitPVCBoundProgress waits for Bound, extending the deadline while the PVC's

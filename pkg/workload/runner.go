@@ -98,141 +98,140 @@ func Run(ctx context.Context, cfg *config.Config, configPath, recipe string) err
 }
 
 func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client) ([]PodInfo, error) {
-	var allPods []PodInfo
-
-	totalRBD := cfg.Cluster.RBD.NumPVC
-	totalCephFS := cfg.Cluster.CephFS.NumPVC
-	log.Printf("Creating %d PVCs (%d RBD + %d CephFS)", totalRBD+totalCephFS, totalRBD, totalCephFS)
+	allPods := plannedPods(cfg)
+	log.Printf("Creating %d PVCs (%d RBD + %d CephFS), %d at a time",
+		len(allPods), cfg.Cluster.RBD.NumPVC, cfg.Cluster.CephFS.NumPVC, cfg.Cluster.ProvisionLimit())
 	if len(cfg.Cluster.AppTypes) > 0 {
 		log.Printf("App-type mode enabled: %v (same suite(s) on every PVC/pod)", cfg.Cluster.AppTypes)
 	}
 
-	g, gCtx := errgroup.WithContext(ctx)
+	// Hold each volume until it is Bound and its pod exists before starting
+	// another past the provision limit. Creating every PVC first opens one
+	// watch per claim and gives the Ceph provisioner the whole set at once.
+	g, gCtx := newProvisionGroup(ctx, cfg)
+	for _, pod := range allPods {
+		pod := pod
+		g.Go(func() error {
+			if err := k8s.RetryContext(gCtx, func() error {
+				return k8s.CreatePVC(gCtx, client, pvcSpec(cfg, pod))
+			}); err != nil {
+				return fmt.Errorf("create PVC %s: %w", pod.PVCName, err)
+			}
+			if err := k8s.WaitPVCBound(gCtx, client, cfg.Cluster.Namespace, pod.PVCName, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+				return fmt.Errorf("wait PVC %s bound: %w", pod.PVCName, err)
+			}
+			if err := k8s.RetryContext(gCtx, func() error {
+				return k8s.CreatePod(gCtx, client, podSpec(cfg, pod))
+			}); err != nil {
+				return fmt.Errorf("create pod %s: %w", pod.Name, err)
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("provision volumes: %w", err)
+	}
+	log.Printf("PVCs Bound and pods created: %d/%d", len(allPods), len(allPods))
+	return allPods, nil
+}
 
-	for i := 1; i <= totalRBD; i++ {
-		i := i
-		var volumeMode corev1.PersistentVolumeMode
-		if i%2 == 1 {
-			volumeMode = corev1.PersistentVolumeFilesystem
-		} else {
-			volumeMode = corev1.PersistentVolumeBlock
-		}
-
-		pvcName := fmt.Sprintf("%s-rbd-pvc-%d", cfg.Cluster.Prefix, i)
-		podName := fmt.Sprintf("%s-rbd-pod-%d", cfg.Cluster.Prefix, i)
+func plannedPods(cfg *config.Config) []PodInfo {
+	allPods := make([]PodInfo, 0, cfg.Cluster.RBD.NumPVC+cfg.Cluster.CephFS.NumPVC)
+	for i := 1; i <= cfg.Cluster.RBD.NumPVC; i++ {
+		volumeMode := corev1.PersistentVolumeFilesystem
 		target := "/mnt/data/fio.dat"
-		if volumeMode == corev1.PersistentVolumeBlock {
+		if i%2 == 0 {
+			volumeMode = corev1.PersistentVolumeBlock
 			target = "/dev/rbdblock"
 		}
-
 		allPods = append(allPods, PodInfo{
 			Index:       i,
-			Name:        podName,
+			Name:        fmt.Sprintf("%s-rbd-pod-%d", cfg.Cluster.Prefix, i),
 			StorageType: "rbd",
 			VolumeMode:  volumeMode,
 			Target:      target,
-			PVCName:     pvcName,
-		})
-
-		g.Go(func() error {
-			return k8s.Retry(func() error {
-				return k8s.CreatePVC(gCtx, client, k8s.PVCSpec{
-					Name:         pvcName,
-					Namespace:    cfg.Cluster.Namespace,
-					StorageClass: cfg.Cluster.RBD.StorageClass,
-					Size:         cfg.Cluster.PVCSize,
-					VolumeMode:   volumeMode,
-					AccessModes:  []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-					Labels:       map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(i), "backend": "rbd"},
-				})
-			})
+			PVCName:     fmt.Sprintf("%s-rbd-pvc-%d", cfg.Cluster.Prefix, i),
 		})
 	}
-
-	for i := 1; i <= totalCephFS; i++ {
-		i := i
-		pvcName := fmt.Sprintf("%s-cephfs-pvc-%d", cfg.Cluster.Prefix, i)
-		podName := fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i)
-
+	for i := 1; i <= cfg.Cluster.CephFS.NumPVC; i++ {
 		allPods = append(allPods, PodInfo{
 			Index:       i,
-			Name:        podName,
+			Name:        fmt.Sprintf("%s-cephfs-pod-%d", cfg.Cluster.Prefix, i),
 			StorageType: "cephfs",
 			VolumeMode:  corev1.PersistentVolumeFilesystem,
 			Target:      "/mnt/data/fio.dat",
-			PVCName:     pvcName,
-		})
-
-		g.Go(func() error {
-			return k8s.Retry(func() error {
-				return k8s.CreatePVC(gCtx, client, k8s.PVCSpec{
-					Name:         pvcName,
-					Namespace:    cfg.Cluster.Namespace,
-					StorageClass: cfg.Cluster.CephFS.StorageClass,
-					Size:         cfg.Cluster.PVCSize,
-					VolumeMode:   corev1.PersistentVolumeFilesystem,
-					AccessModes:  []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
-					Labels:       map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(i), "backend": "cephfs"},
-				})
-			})
+			PVCName:     fmt.Sprintf("%s-cephfs-pvc-%d", cfg.Cluster.Prefix, i),
 		})
 	}
+	return allPods
+}
 
-	if err := g.Wait(); err != nil {
-		return nil, fmt.Errorf("create PVCs: %w", err)
+func pvcSpec(cfg *config.Config, pod PodInfo) k8s.PVCSpec {
+	spec := k8s.PVCSpec{
+		Name:        pod.PVCName,
+		Namespace:   cfg.Cluster.Namespace,
+		Size:        cfg.Cluster.PVCSize,
+		VolumeMode:  pod.VolumeMode,
+		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+		Labels:      map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType},
 	}
+	if pod.StorageType == "cephfs" {
+		spec.StorageClass = cfg.Cluster.CephFS.StorageClass
+		spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}
+	} else {
+		spec.StorageClass = cfg.Cluster.RBD.StorageClass
+	}
+	return spec
+}
 
-	log.Printf("Waiting for PVCs to be Bound")
-	gBound, boundCtx := errgroup.WithContext(ctx)
-	for _, pod := range allPods {
-		pod := pod
-		gBound.Go(func() error {
-			return k8s.WaitPVCBound(boundCtx, client, cfg.Cluster.Namespace, pod.PVCName, cfg.Cluster.WaitTimeout.Duration())
-		})
+func podSpec(cfg *config.Config, pod PodInfo) k8s.PodSpec {
+	labels := map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType}
+	if len(cfg.Cluster.AppTypes) > 0 {
+		labels["app-types"] = strings.Join(cfg.Cluster.AppTypes, ",")
 	}
-	if err := gBound.Wait(); err != nil {
-		return nil, fmt.Errorf("wait PVCs bound: %w", err)
+	return k8s.PodSpec{
+		Name:       pod.Name,
+		Namespace:  cfg.Cluster.Namespace,
+		Image:      cfg.Tools.FIO.Image,
+		PVCName:    pod.PVCName,
+		VolumeMode: pod.VolumeMode,
+		Labels:     labels,
+		Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
 	}
-	log.Printf("PVCs Bound: %d/%d", len(allPods), len(allPods))
+}
 
-	log.Printf("Creating %d pods", len(allPods))
-	gPod, podCtx := errgroup.WithContext(ctx)
-	for _, pod := range allPods {
-		pod := pod
-		gPod.Go(func() error {
-			labels := map[string]string{"app": cfg.Cluster.Prefix, "index": strconv.Itoa(pod.Index), "backend": pod.StorageType}
-			if len(cfg.Cluster.AppTypes) > 0 {
-				labels["app-types"] = strings.Join(cfg.Cluster.AppTypes, ",")
-			}
-			return k8s.Retry(func() error {
-				return k8s.CreatePod(podCtx, client, k8s.PodSpec{
-					Name:       pod.Name,
-					Namespace:  cfg.Cluster.Namespace,
-					Image:      cfg.Tools.FIO.Image,
-					PVCName:    pod.PVCName,
-					VolumeMode: pod.VolumeMode,
-					Labels:     labels,
-					Privileged: pod.VolumeMode == corev1.PersistentVolumeBlock,
-				})
-			})
-		})
+// newProvisionGroup caps in-flight PVC create, bind, pod create, and pod ready waits.
+func newProvisionGroup(ctx context.Context, cfg *config.Config) (*errgroup.Group, context.Context) {
+	g, gctx := errgroup.WithContext(ctx)
+	if n := int(cfg.Cluster.ProvisionLimit()); n > 0 {
+		g.SetLimit(n)
 	}
-	if err := gPod.Wait(); err != nil {
-		return nil, fmt.Errorf("create pods: %w", err)
-	}
-
-	return allPods, nil
+	return g, gctx
 }
 
 func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, allPods []PodInfo) ([]PodInfo, error) {
 	log.Printf("Waiting for pods to be Ready")
+	g, gCtx := newProvisionGroup(ctx, cfg)
+	ready := make([]PodInfo, len(allPods))
+	for i, pod := range allPods {
+		i, pod := i, pod
+		g.Go(func() error {
+			if err := k8s.WaitPodReady(gCtx, client, cfg.Cluster.Namespace, pod.Name, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+				log.Printf("WARNING: pod %s did not become Ready - skipping: %v", pod.Name, err)
+				return nil
+			}
+			ready[i] = pod
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
 	var readyPods []PodInfo
-	for _, pod := range allPods {
-		if err := k8s.WaitPodReady(ctx, client, cfg.Cluster.Namespace, pod.Name, cfg.Cluster.WaitTimeout.Duration()); err != nil {
-			log.Printf("WARNING: pod %s did not become Ready - skipping", pod.Name)
-			continue
+	for _, pod := range ready {
+		if pod.Name != "" {
+			readyPods = append(readyPods, pod)
 		}
-		readyPods = append(readyPods, pod)
 	}
 	if len(readyPods) == 0 {
 		return nil, fmt.Errorf("no pods became Ready")

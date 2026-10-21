@@ -119,7 +119,7 @@ func newRootCmd() *cobra.Command {
 	f.String("snapshot-class", def.Cluster.SnapshotClass, "Override VolumeSnapshotClass")
 	f.Int("sustain-runtime", def.Cluster.SustainRuntime, "Sustain workload duration (default: runtime*3)")
 	f.Int("max-parallel", def.Cluster.MaxParallelPods, "Max concurrent pods (0=unlimited)")
-	f.Int("max-parallel-provision", def.Cluster.MaxParallelProvision, "Max in-flight clone/restore/expand operations")
+	f.Int("max-parallel-provision", def.Cluster.MaxParallelProvision, "Max in-flight PVC create, bind, pod create, clone, restore, and expand operations")
 	f.Bool("sequential", !def.Tools.FIO.Parallel, "Run FIO workloads sequentially")
 	f.String("app-type", "", "Comma-separated app workload profiles from tools.fio.app_suites (built-ins: "+strings.Join(config.ValidAppTypes(nil), ", ")+")")
 
