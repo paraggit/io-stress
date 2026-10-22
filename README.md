@@ -128,7 +128,7 @@ cluster:
   results_dir: ""    # empty → results/<timestamp> ; CLI: --results-dir
   wait_timeout: 5m
   clone_timeout: 20m           # CephFS clone/restore Bound wait (RBD uses wait_timeout)
-  max_parallel_provision: 4    # in-flight clone/restore/expand ops
+  max_parallel_provision: 4    # in-flight PVC create/bind/pod create and clone/restore/expand
   seed_size: 512m              # Block integrity seed/verify extent (see Data integrity verify)
   write_verify: false          # true → single write+immediate crc32c job; skips stress suite and lifecycle
   setup_only: false            # true → create PVCs/pods and exit (implies no_cleanup)
@@ -185,7 +185,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `-f, --format` | `json` | FIO output format (`json`, `normal`) |
 | `--sequential` | `false` | Run FIO jobs sequentially (`tools.fio.parallel=false`) |
 | `--max-parallel` | `0` | Max concurrent pods (`0` = unlimited) |
-| `--max-parallel-provision` | `4` | Max in-flight clone/restore/expand operations |
+| `--max-parallel-provision` | `4` | Max in-flight PVC create, bind, pod create, clone, restore, and expand operations |
 | `--no-cleanup` | `false` | Skip resource cleanup on exit |
 | `--dry-run` | `false` | Emit YAML manifests only |
 | `--lifecycle-interval` | `4` | Run lifecycle ops on every Nth pod |

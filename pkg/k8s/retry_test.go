@@ -1,8 +1,10 @@
 package k8s
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestRetry_SuccessFirst(t *testing.T) {
@@ -47,5 +49,20 @@ func TestRetry_AllFail(t *testing.T) {
 	}
 	if calls != 4 {
 		t.Errorf("called %d times, want 4 (3 delays → 4 attempts)", calls)
+	}
+}
+
+func TestRetryContextStopsWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	err := RetryContext(ctx, func() error {
+		return errors.New("should not run")
+	})
+	if time.Since(start) > time.Second {
+		t.Fatalf("cancelled retry took %s", time.Since(start))
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }

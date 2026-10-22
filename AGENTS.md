@@ -65,7 +65,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--snapshot-class` | empty | VolumeSnapshotClass override; empty auto-selects |
 | `--sustain-runtime` | `180` | Sustain workload seconds. Recomputed as runtime×3 only when still 0 |
 | `--max-parallel` | `0` | Max concurrent pods; 0 is unlimited |
-| `--max-parallel-provision` | `4` | Max in-flight clone, restore, and expand operations |
+| `--max-parallel-provision` | `4` | Max in-flight PVC create, bind, pod create, clone, restore, and expand operations |
 | `--sequential` | `false` | Run FIO jobs one at a time |
 | `--app-type` | empty | Comma-separated profiles: `nfs`, `vm`, `database`, `messaging`, `ai` |
 

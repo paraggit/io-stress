@@ -195,7 +195,8 @@ func (c Cluster) ProvisionTimeout(storageType string) time.Duration {
 	return waitTO
 }
 
-// ProvisionLimit is the cap on in-flight clone/restore/expand operations.
+// ProvisionLimit caps in-flight volume work: initial PVC create/bind/pod
+// create, and later clone/restore/expand. Zero uses the default of 4.
 func (c Cluster) ProvisionLimit() int64 {
 	if c.MaxParallelProvision > 0 {
 		return int64(c.MaxParallelProvision)

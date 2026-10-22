@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -125,32 +126,63 @@ func CreatePod(ctx context.Context, c *Client, spec PodSpec) error {
 }
 
 func WaitPodReady(ctx context.Context, c *Client, namespace, name string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	watcher, err := c.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: "metadata.name=" + name,
-	})
-	if err != nil {
-		return fmt.Errorf("watch pod %s: %w", name, err)
-	}
-	defer watcher.Stop()
+	// Poll with Get. A per-pod Watch is closed by the apiserver once many
+	// pods are created together, which looks like the pod never became Ready.
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
-	for event := range watcher.ResultChan() {
-		if event.Type == watch.Error {
-			return fmt.Errorf("watch error for pod %s", name)
+	ready, err := podIsReady(ctx, c, namespace, name)
+	if ready || err != nil {
+		if ready {
+			return nil
 		}
-		pod, ok := event.Object.(*corev1.Pod)
-		if !ok {
-			continue
-		}
-		for _, cond := range pod.Status.Conditions {
-			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+		return err
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("pod %s did not become Ready within %v", name, timeout)
+			}
+			return ctx.Err()
+		case <-ticker.C:
+			ready, err := podIsReady(ctx, c, namespace, name)
+			if ready {
 				return nil
+			}
+			if err != nil {
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					return fmt.Errorf("pod %s did not become Ready within %v", name, timeout)
+				}
+				return err
 			}
 		}
 	}
-	return fmt.Errorf("pod %s did not become Ready within %v", name, timeout)
+}
+
+func podIsReady(ctx context.Context, c *Client, namespace, name string) (bool, error) {
+	pod, err := c.Clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return false, fmt.Errorf("get pod %s: %w", name, err)
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // DeletePod issues a force delete and returns once the API accepts it (does not wait).
