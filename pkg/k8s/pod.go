@@ -177,6 +177,9 @@ func podIsReady(ctx context.Context, c *Client, namespace, name string) (bool, e
 		}
 		return false, fmt.Errorf("get pod %s: %w", name, err)
 	}
+	if err := unschedulablePod(pod); err != nil {
+		return false, err
+	}
 	for _, cond := range pod.Status.Conditions {
 		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
 			return true, nil
