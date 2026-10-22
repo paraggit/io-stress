@@ -11,6 +11,24 @@ import (
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
 )
 
+func TestPodsNeededIncludesCephFSRWX(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Cluster.RBD.NumPVC = 2
+	cfg.Cluster.CephFS.NumPVC = 3
+	if got := podsNeeded(cfg); got != 8 {
+		t.Fatalf("standard suite pods = %d, want 8 (2 rbd + 3 cephfs + 3 rwx)", got)
+	}
+	cfg.Cluster.SkipFIOStress = true
+	if got := podsNeeded(cfg); got != 5 {
+		t.Fatalf("skip fio pods = %d, want 5", got)
+	}
+	cfg.Cluster.SkipFIOStress = false
+	cfg.Cluster.AppTypes = []string{"vm"}
+	if got := podsNeeded(cfg); got != 5 {
+		t.Fatalf("app-type pods = %d, want 5", got)
+	}
+}
+
 func TestPlannedPodsVolumeModes(t *testing.T) {
 	cfg := config.NewDefault()
 	cfg.Cluster.RBD.NumPVC = 2

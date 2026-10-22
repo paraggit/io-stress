@@ -2,6 +2,7 @@ package workload
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -99,6 +100,9 @@ func Run(ctx context.Context, cfg *config.Config, configPath, recipe string) err
 
 func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client) ([]PodInfo, error) {
 	allPods := plannedPods(cfg)
+	if err := ensurePodCapacity(ctx, client, podsNeeded(cfg)); err != nil {
+		return nil, err
+	}
 	log.Printf("Creating %d PVCs (%d RBD + %d CephFS), %d at a time",
 		len(allPods), cfg.Cluster.RBD.NumPVC, cfg.Cluster.CephFS.NumPVC, cfg.Cluster.ProvisionLimit())
 	if len(cfg.Cluster.AppTypes) > 0 {
@@ -209,6 +213,28 @@ func newProvisionGroup(ctx context.Context, cfg *config.Config) (*errgroup.Group
 	return g, gctx
 }
 
+func ensurePodCapacity(ctx context.Context, client *k8s.Client, need int) error {
+	nodes, free, err := k8s.SchedulablePodSlots(ctx, client)
+	if err != nil {
+		return fmt.Errorf("check pod capacity: %w", err)
+	}
+	log.Printf("Pod slots: %d free on %d schedulable nodes, requesting %d", free, nodes, need)
+	if free < need {
+		return fmt.Errorf("not enough pod slots: requested %d, %d free on %d schedulable nodes (workers are at max pods; masters are unschedulable)", need, free, nodes)
+	}
+	return nil
+}
+
+// podsNeeded is the peak pod count for the run. CephFS RWX adds one companion
+// pod per CephFS volume when the standard suite runs.
+func podsNeeded(cfg *config.Config) int {
+	n := cfg.Cluster.RBD.NumPVC + cfg.Cluster.CephFS.NumPVC
+	if cfg.Cluster.CephFS.NumPVC > 0 && !cfg.Cluster.SkipFIOStress && !cfg.Cluster.WriteVerify && len(cfg.Cluster.AppTypes) == 0 {
+		n += cfg.Cluster.CephFS.NumPVC
+	}
+	return n
+}
+
 func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, allPods []PodInfo) ([]PodInfo, error) {
 	log.Printf("Waiting for pods to be Ready")
 	g, gCtx := newProvisionGroup(ctx, cfg)
@@ -217,6 +243,13 @@ func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, al
 		i, pod := i, pod
 		g.Go(func() error {
 			if err := k8s.WaitPodReady(gCtx, client, cfg.Cluster.Namespace, pod.Name, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+				var unsched *k8s.UnschedulableError
+				if errors.As(err, &unsched) {
+					return err
+				}
+				if gCtx.Err() != nil {
+					return nil
+				}
 				log.Printf("WARNING: pod %s did not become Ready - skipping: %v", pod.Name, err)
 				return nil
 			}
