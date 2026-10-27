@@ -69,3 +69,52 @@ jobs:
             dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    name: Build and push worker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          VERSION="v0.0.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          GHCR="ghcr.io/${OWNER}/odf-io-stress"
+          QUAY="quay.io/paraggit/odf-io-stress"
+          tags=(-t "${GHCR}:${VERSION}" -t "${GHCR}:latest")
+          push_quay=false
+          if [ -n "${QUAY_USERNAME}" ] && [ -n "${QUAY_PASSWORD}" ]; then
+            push_quay=true
+            tags+=(-t "${QUAY}:${VERSION}" -t "${QUAY}:latest")
+          fi
+          docker build -f build/Dockerfile \
+            --build-arg "SOURCE_URL=https://github.com/${GITHUB_REPOSITORY}" \
+            "${tags[@]}" .
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker push "${GHCR}:${VERSION}"
+          docker push "${GHCR}:latest"
+          if [ "${push_quay}" = true ]; then
+            echo "${QUAY_PASSWORD}" | docker login quay.io -u "${QUAY_USERNAME}" --password-stdin
+            docker push "${QUAY}:${VERSION}"
+            docker push "${QUAY}:latest"
+          else
+            echo "Quay credentials are not set; skipping the Quay push"
+          fi

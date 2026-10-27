@@ -22,6 +22,10 @@ import (
 func Run(ctx context.Context, cfg *config.Config, configPath, recipe string) error {
 	config.ApplyWriteVerify(cfg)
 	config.ApplySetupOnly(cfg)
+	config.ApplyObjectOnly(cfg)
+	if err := EnsureObjectSeed(cfg); err != nil {
+		return finalize(os.Stdout, "", nil, err, finalizeOpts{})
+	}
 
 	if cfg.Cluster.ResultsDir == "" {
 		cfg.Cluster.ResultsDir = filepath.Join(".", "results", time.Now().Format("20060102-150405"))
@@ -36,31 +40,56 @@ func Run(ctx context.Context, cfg *config.Config, configPath, recipe string) err
 		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("create k8s client: %w", err), base)
 	}
 
+	results, runErr, opts := execute(ctx, cfg, client, base)
+	if cfg.Tools.Object.Enabled {
+		if !cfg.Cluster.NoCleanup {
+			if cerr := cleanup(client, cfg); cerr != nil {
+				log.Printf("Cleanup: %v", cerr)
+				runErr = joinCleanup(runErr, cerr)
+			}
+		}
+		return finalize(os.Stdout, cfg.Cluster.ResultsDir, results, runErr, opts)
+	}
+
+	err = finalize(os.Stdout, cfg.Cluster.ResultsDir, results, runErr, opts)
 	if !cfg.Cluster.NoCleanup {
-		defer func() {
-			cleanup(client, cfg)
-		}()
+		_ = cleanup(client, cfg)
+	}
+	return err
+}
+
+// execute runs the workload and returns results without writing the report.
+// FIO-only failures before any job keep writeReport false, matching the
+// previous exit path. Object runs write the report once work has started.
+func execute(ctx context.Context, cfg *config.Config, client *k8s.Client, base finalizeOpts) ([]report.JobResult, error, finalizeOpts) {
+	opts := base
+	if resetNamespace(cfg) {
+		log.Printf("Resetting namespace %s (clearing leftovers)", cfg.Cluster.Namespace)
+		if err := k8s.ResetNamespace(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
+			return nil, fmt.Errorf("reset namespace: %w", err), opts
+		}
+	} else {
+		log.Printf("object resume: not deleting namespace %s", cfg.Cluster.Namespace)
+		if err := k8s.EnsureNamespace(ctx, client, cfg.Cluster.Namespace); err != nil {
+			return nil, err, opts
+		}
 	}
 
-	// Drop leftovers from prior incomplete runs, then recreate the namespace.
-	log.Printf("Resetting namespace %s (clearing leftovers)", cfg.Cluster.Namespace)
-	if err := k8s.ResetNamespace(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, fmt.Errorf("reset namespace: %w", err), base)
-	}
-
-	allPods, err := setupResources(ctx, cfg, client)
-	if err != nil {
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, base)
-	}
-
-	readyPods, err := waitForPods(ctx, cfg, client, allPods)
-	if err != nil {
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, err, base)
+	var readyPods []PodInfo
+	if pods := plannedPods(cfg); len(pods) > 0 {
+		allPods, err := setupResources(ctx, cfg, client)
+		if err != nil {
+			return nil, err, opts
+		}
+		readyPods, err = waitForPods(ctx, cfg, client, allPods)
+		if err != nil {
+			return nil, err, opts
+		}
 	}
 
 	if cfg.Cluster.SetupOnly {
 		log.Printf("Setup-only: %d PVC/pod(s) ready in namespace %s (no FIO/lifecycle; resources kept)", len(readyPods), cfg.Cluster.Namespace)
-		return finalize(os.Stdout, cfg.Cluster.ResultsDir, nil, nil, base)
+		return nil, nil, opts
 	}
 
 	if cfg.Cluster.WriteVerify {
@@ -69,14 +98,16 @@ func Run(ctx context.Context, cfg *config.Config, configPath, recipe string) err
 
 	collector := report.NewCollector()
 	startTime := time.Now()
+	opts.writeReport = true
+	opts.printHuman = true
+	opts.start = startTime
 
 	if !cfg.Cluster.SkipFIOStress {
+		if len(readyPods) == 0 {
+			return collector.Results(), fmt.Errorf("no pods became Ready"), opts
+		}
 		if err := runPhase1(ctx, cfg, client, readyPods, collector); err != nil {
-			phase := base
-			phase.writeReport = true
-			phase.printHuman = true
-			phase.start = startTime
-			return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), err, phase)
+			return collector.Results(), err, opts
 		}
 	} else {
 		log.Println("Phase 1 skipped (--skip-fio-stress)")
@@ -91,11 +122,25 @@ func Run(ctx context.Context, cfg *config.Config, configPath, recipe string) err
 		}
 	}
 
-	done := base
-	done.writeReport = true
-	done.printHuman = true
-	done.start = startTime
-	return finalize(os.Stdout, cfg.Cluster.ResultsDir, collector.Results(), nil, done)
+	if cfg.Tools.Object.Enabled {
+		if err := runObject(ctx, cfg, client, collector); err != nil {
+			return collector.Results(), err, opts
+		}
+	}
+	return collector.Results(), nil, opts
+}
+
+// resetNamespace reports whether this run deletes and recreates the namespace
+// before doing any work. An object resume reuses the claims that live there.
+func resetNamespace(cfg *config.Config) bool {
+	return cfg == nil || !cfg.Tools.Object.Resume
+}
+
+func joinCleanup(runErr, cerr error) error {
+	if runErr == nil {
+		return &CleanupError{Err: cerr}
+	}
+	return fmt.Errorf("%w; cleanup: %v", runErr, cerr)
 }
 
 func setupResources(ctx context.Context, cfg *config.Config, client *k8s.Client) ([]PodInfo, error) {
@@ -232,10 +277,23 @@ func podsNeeded(cfg *config.Config) int {
 	if cfg.Cluster.CephFS.NumPVC > 0 && !cfg.Cluster.SkipFIOStress && !cfg.Cluster.WriteVerify && len(cfg.Cluster.AppTypes) == 0 {
 		n += cfg.Cluster.CephFS.NumPVC
 	}
+	if cfg.Tools.Object.Enabled {
+		peak := cfg.Tools.Object.Workers
+		if peak < 1 {
+			peak = 1
+		}
+		if cfg.Tools.Object.HasPhase("list") && cfg.Tools.Object.Buckets > peak {
+			peak = cfg.Tools.Object.Buckets
+		}
+		n += peak
+	}
 	return n
 }
 
 func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, allPods []PodInfo) ([]PodInfo, error) {
+	if len(allPods) == 0 {
+		return nil, nil
+	}
 	log.Printf("Waiting for pods to be Ready")
 	g, gCtx := newProvisionGroup(ctx, cfg)
 	ready := make([]PodInfo, len(allPods))
@@ -273,7 +331,11 @@ func waitForPods(ctx context.Context, cfg *config.Config, client *k8s.Client, al
 	return readyPods, nil
 }
 
-func cleanup(client *k8s.Client, cfg *config.Config) {
+func cleanup(client *k8s.Client, cfg *config.Config) error {
+	if cfg.Tools.Object.Resume {
+		log.Printf("object resume: not deleting namespace %s", cfg.Cluster.Namespace)
+		return nil
+	}
 	log.Printf("Cleaning up resources in namespace %s", cfg.Cluster.Namespace)
 
 	// Fresh context per cleanup so a prior timeout cannot poison every API call.
@@ -284,11 +346,12 @@ func cleanup(client *k8s.Client, cfg *config.Config) {
 	log.Printf("Cleanup: deleting namespace %s", cfg.Cluster.Namespace)
 	if err := k8s.DeleteNamespace(ctx, client, cfg.Cluster.Namespace); err != nil {
 		log.Printf("Cleanup: delete namespace: %v", err)
-		return
+		return err
 	}
 	if err := k8s.WaitNamespaceDeleted(ctx, client, cfg.Cluster.Namespace, cfg.Cluster.WaitTimeout.Duration()); err != nil {
 		log.Printf("Cleanup: wait namespace deleted: %v (may still be terminating)", err)
-		return
+		return err
 	}
 	log.Printf("Cleanup complete")
+	return nil
 }

@@ -1,6 +1,6 @@
 # odf-io-stress
 
-ODF IO stress testing tool for RBD and CephFS. It creates PVC/pod pairs on an OpenShift Data Foundation cluster, runs FIO workloads, exercises volume lifecycle operations (expand, clone, snapshot/restore), and verifies data integrity.
+ODF IO stress testing tool for RBD, CephFS, and (opt-in) NooBaa / Multicloud Object Gateway. It creates PVC/pod pairs on an OpenShift Data Foundation cluster, runs FIO workloads, exercises volume lifecycle operations (expand, clone, snapshot/restore), and verifies data integrity. `--object` adds an S3 object workload that runs inside the cluster.
 
 ## Prerequisites
 
@@ -16,11 +16,22 @@ make build
 go build -o odf-io-stress ./cmd/odf-io-stress
 ```
 
+The object workload runs from a container image. Build and push it before a cluster run:
+
+```bash
+make image          # IMAGE defaults to quay.io/paraggit/odf-io-stress:$(VERSION)
+make image-push
+```
+
+How to tag, push, and pass your own image is in [docs/object-image.md](docs/object-image.md).
+
 ## Release
 
-Every merge (push) to `main` triggers GitHub Actions to test, cross-compile binaries, and publish a GitHub Release.
+Every merge (push) to `main` triggers GitHub Actions to test, cross-compile binaries, publish a GitHub Release, and push the worker image to GitHub Container Registry.
 
 Version format: `v0.0.<run_number>-<short_sha>` (for example `v0.0.12-a1b2c3d`).
+
+The image tags are `ghcr.io/paraggit/odf-io-stress:<version>` and `ghcr.io/paraggit/odf-io-stress:latest`. The same build is also pushed to `quay.io/paraggit/odf-io-stress` when the `QUAY_USERNAME` and `QUAY_PASSWORD` secrets are set. Pass either reference with `--object-image`. Details are in [docs/object-image.md](docs/object-image.md).
 
 Artifacts (linux/darwin × amd64/arm64) and SHA256 checksums are attached to the release. Locally you can build the same set with:
 
@@ -96,6 +107,9 @@ make release-binaries
 ./odf-io-stress run --app-type nfs
 ./odf-io-stress run --app-type vm,database
 ./odf-io-stress run --app-type nfs,vm,database --runtime 120
+
+# NooBaa / MCG only (no PVCs). See "Object workload" below.
+./odf-io-stress run --object-only --object-profile smoke --results-dir results/object-smoke
 ```
 
 ### Generate config
@@ -154,6 +168,18 @@ tools:
   # Reserved for future IO engines — ignored in v1 (warning if non-empty)
   vdbench: {}
   smallfiles: {}
+
+  object:
+    enabled: false                 # true, or pass --object / --object-only
+    profile: standard              # smoke | standard | scale | large
+    image: quay.io/paraggit/odf-io-stress:latest
+    buckets: 10
+    objects_per_bucket: 5000
+    key_layout: hashed             # hashed | flat | deep
+    verify_mode: full              # full | etag | sample
+    phases: [create, write, read, verify, list, copy, delete, teardown]
+    delete_mode: both              # recursive | obc-only | both
+    seed: ""                       # empty → random; printed and stored in summary.json
 ```
 
 Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`, and FIO-native `params` (e.g. `rw`, `bs`, `ioengine`). Run `generate-config` for a full sample including default suites.
@@ -197,6 +223,25 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--snapshot-class` | _(auto)_ | Override VolumeSnapshotClass |
 | `--sustain-runtime` | `runtime*3` | Sustain workload duration (seconds) |
 | `--app-type` | _(none)_ | Comma-separated app profiles from `tools.fio.app_suites` (built-ins: `nfs`, `vm`, `database`, `messaging`, `ai`) |
+| `--object` | `false` | Enable the NooBaa object workload alongside FIO |
+| `--object-only` | `false` | Run only the object workload. Sets RBD and CephFS PVC counts to 0 and skips FIO |
+| `--object-profile` | `standard` | `smoke`, `standard`, `scale`, or `large`. Applied before the other object flags |
+| `--object-image` | `quay.io/paraggit/odf-io-stress:latest` | Custom worker image. Overrides the profile and the config file. The image must contain this binary |
+| `--object-buckets` | `10` | Number of buckets |
+| `--object-count` | `5000` | Objects per bucket |
+| `--object-size-mix` | `4KB:60,1MB:30,16MB:10` | Weighted sizes, for example `4KB:80,1MB:20` |
+| `--object-workers` | `4` | Worker pods per phase |
+| `--object-key-layout` | `hashed` | `hashed`, `flat`, or `deep` |
+| `--object-verify` | `full` | `full` (every byte), `etag`, or `sample` |
+| `--object-versioned` | `2` | How many buckets have versioning enabled |
+| `--object-phases` | all eight | Comma-separated subset. Order is always create, write, read, verify, list, copy, delete, teardown |
+| `--object-delete-mode` | `both` | `recursive`, `obc-only`, or `both` |
+| `--object-storage-class` | `openshift-storage.noobaa.io` | ObjectBucketClaim StorageClass |
+| `--object-provisioning` | `obc` | `obc` or `s3` (direct `CreateBucket` with the `noobaa-admin` secret) |
+| `--object-seed` | random | 64 hex characters. Reproduces bucket names and object bytes |
+| `--object-resume` | `false` | Reuse buckets from `--object-seed`. Requires `--object-only` and does not delete the namespace |
+| `--object-insecure-tls` | `false` | Skip S3 TLS verification. Logged on the control plane and in the worker |
+| `--object-force` | `false` | Start the write phase even when the NooBaa capacity preflight fails |
 
 `generate-config` flags:
 
@@ -204,6 +249,143 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 |------|---------|-------------|
 | `-o, --output` | `odf-io-stress.yaml` | Output path (`-` for stdout) |
 | `--force` | `false` | Overwrite existing output file |
+
+## Object workload
+
+`--object` runs a NooBaa / MCG S3 workload in the same namespace as FIO. `--object-only` runs it alone: PVC counts become 0 and FIO is skipped. Without either flag, a run is unchanged.
+
+The control plane uses only the Kubernetes API. Worker pods run this binary's `s3-worker` command and make every S3 call, including bucket creation when `--object-provisioning s3`. Build an image with `make image` and pass it on the command line with `--object-image`. The default is `quay.io/paraggit/odf-io-stress:latest`. [docs/object-image.md](docs/object-image.md) is the build and push walkthrough.
+
+Bucket names come from the seed: `<key-prefix>-<first 8 hex chars>-<ordinal>`, for example `objstress-4f2a9c1d-007`. The seed is random when unset, printed on stderr, and stored in `summary.json` as `options.object-seed`. Object bytes are derived from that seed, so a later verify does not need a saved object list. Repeat the same profile, bucket count, object count, size mix, and key layout when you resume.
+
+### Examples
+
+```bash
+# Short run: 2 buckets, 500 objects, full verify, no PVCs
+./odf-io-stress run --object-only --object-profile smoke --results-dir results/object-smoke
+
+# Default shape: 10 buckets, 5000 objects each
+./odf-io-stress run --object-only --object-profile standard --results-dir results/object-standard
+
+# One million small objects across 50 buckets (sampled verify)
+./odf-io-stress run --object-only --object-profile scale --results-dir results/object-scale
+
+# Large multipart objects
+./odf-io-stress run --object-only --object-profile large --results-dir results/object-large
+
+# Shrink a profile. Explicit flags override the profile
+./odf-io-stress run --object-only --object-profile smoke --object-buckets 1 --object-count 20
+
+# Image published to GHCR on each push to main
+./odf-io-stress run --object-only --object-profile smoke \
+  --object-image ghcr.io/paraggit/odf-io-stress:latest \
+  --results-dir results/object-smoke
+
+# Use your own worker image instead of the default
+./odf-io-stress run --object-only --object-profile smoke \
+  --object-image quay.io/my-org/odf-io-stress:dev \
+  --results-dir results/object-smoke
+
+# Object workload and a FIO smoke recipe in the same namespace
+./odf-io-stress run --object --object-profile smoke --recipe smoke --results-dir results/both
+
+# Print ObjectBucketClaim and worker-pod YAML. Creates nothing
+./odf-io-stress run --object-only --object-profile smoke --dry-run
+
+# Flat keys (one prefix) and ETag checks
+./odf-io-stress run --object-only --object-profile smoke --object-key-layout flat --object-verify etag
+
+# Keep the buckets, then verify them later. Copy object-seed from the first summary
+./odf-io-stress run --object-only --object-profile smoke --no-cleanup --results-dir results/object-keep
+./odf-io-stress run --object-only --object-resume --object-seed <seed> \
+  --object-profile smoke --object-phases verify --results-dir results/object-verify
+
+# Write, then stop before delete, using a seed you choose
+./odf-io-stress run --object-only --object-profile smoke \
+  --object-seed 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --object-phases create,write,verify --no-cleanup
+
+# Empty every bucket before deleting its claim
+./odf-io-stress run --object-only --object-profile smoke --object-delete-mode recursive
+
+# Delete claims while the buckets are still full (finalizer case)
+./odf-io-stress run --object-only --object-profile smoke --object-delete-mode obc-only
+
+# Create buckets with the noobaa-admin secret instead of ObjectBucketClaims
+./odf-io-stress run --object-only --object-profile smoke --object-provisioning s3
+
+# From a config file; flags still override
+./odf-io-stress run --config odf-io-stress.yaml --object-only --object-profile smoke
+```
+
+A phase list that omits `create` has to be a resume (`--object-resume --object-only --object-seed`). Otherwise the namespace reset would delete the buckets the later phases need. `--object-resume` also skips deleting the namespace at the end. `--no-cleanup` on the first run is what leaves the buckets in place.
+
+`--setup-only` still wins when both are set: the command provisions (nothing, if `--object-only`) and exits before the object phases.
+
+### Profiles
+
+| Profile | Buckets | Objects each | Sizes | Workers | Verify |
+|---------|---------|--------------|-------|---------|--------|
+| `smoke` | 2 | 500 | 4KB, 1MB | 2 | full |
+| `standard` | 10 | 5,000 | 4KB, 1MB, 16MB | 4 | full |
+| `scale` | 50 | 20,000 | 4KB–64KB | 16 | sample, 1% |
+| `large` | 4 | 50 | 100MB–5GB | 4 | full, multipart |
+
+### Phases
+
+Phases always run in this order. `--object-phases` selects a subset.
+
+| Phase | What it does |
+|-------|----------------|
+| `create` | Create ObjectBucketClaims (or S3 buckets), probe capabilities, enable versioning |
+| `write` | PUT every object. Multipart above 16MB. A 1% sample is read back immediately |
+| `read` | GET and HEAD, with some range reads |
+| `verify` | `full`, `etag`, or `sample`. A mismatch names the key, both SHA-256 values, and the first bad byte |
+| `list` | Paginated listing, prefix/delimiter, and version listing on versioned buckets |
+| `copy` | Server-side copy of a sample under `copies/` |
+| `delete` | Empty buckets and/or leave them full, depending on `--object-delete-mode` |
+| `teardown` | Confirm recursive buckets are empty, then delete the claims |
+
+`delete_mode: both` (the default) empties even-numbered buckets and deletes odd-numbered claims while they are still full. A single bucket uses `obc-only`, so the finalizer path is the one that runs.
+
+Versioning, multipart, version listing, copy, and batch delete are probed first. `NotImplemented`, `MethodNotAllowed`, and HTTP 501 skip that operation. A supported operation that then fails fails the run.
+
+### Config
+
+`generate-config` writes `tools.object` with the standard profile and `enabled: false`.
+
+```yaml
+tools:
+  object:
+    enabled: true
+    profile: smoke
+    image: quay.io/paraggit/odf-io-stress:latest
+    provisioning: obc          # obc | s3
+    storage_class: openshift-storage.noobaa.io
+    noobaa_namespace: openshift-storage
+    buckets: 2
+    objects_per_bucket: 500
+    versioned_buckets: 1
+    versions_per_key: 3
+    key_prefix: objstress
+    key_layout: hashed         # hashed | flat | deep
+    verify_mode: full          # full | etag | sample
+    verify_sample_pct: 1
+    delete_mode: both          # recursive | obc-only | both
+    insecure_tls: false
+    capacity_preflight: true
+    seed: ""
+```
+
+```bash
+./odf-io-stress generate-config -o odf-io-stress.yaml
+./odf-io-stress run --config odf-io-stress.yaml --object-only
+# A flag still wins over tools.object.image in the file
+./odf-io-stress run --config odf-io-stress.yaml --object-only \
+  --object-image quay.io/my-org/odf-io-stress:dev
+```
+
+Before `write`, the tool compares the projected bytes with free capacity on the NooBaa CR. If the projection is larger, the run stops. `--object-force` continues. If free capacity cannot be read, the run continues and logs a warning.
 
 ## App-type workload profiles
 
@@ -271,7 +453,7 @@ Built-in profiles remain available unless you override the same key. Pattern `pa
 
 | Gap | Why FIO-only is insufficient |
 |-----|------------------------------|
-| Object / RGW / NooBaa | Needs S3 client workloads |
+| RGW / Ceph Object Gateway | MCG/NooBaa is the object workload; RGW is not wired up |
 | Real NFS-Ganesha / CSI NFS | Needs NFS mount + metadata tools (e.g. smallfiles) |
 | Real CNV VMs | Needs KubeVirt guests, not only block FIO |
 | Real databases / brokers | Needs pgbench/sysbench/kafka tools |
@@ -402,15 +584,21 @@ Stdout is that same `summary.json` object. Logs and the human `=== RESULTS ===` 
 
 Exit status: `0` pass, `1` the run finished and at least one job failed, `2` bad config or usage, `3` the cluster step failed before jobs finished. A non-zero exit sets the JSON `error` field (`N job(s) failed` on exit 1). `failures[].classification` is `harness` (known verify false positive), `storage`, or `unknown`. `failures[].durationSeconds` is seconds; `report.json` `duration` remains a Go duration in nanoseconds.
 
+On an object run, exit 2 is also a cleanup failure after the workload passed (stuck OBC finalizers; the report is still written) and exit 3 is also an infrastructure failure (`infra-fail`, classification `infra`). Those two classifications are `cleanup` and `infra`. A capability the cluster does not implement is `skip`, not a failure.
+
 The `results/` directory is gitignored.
 
 ## Project layout
 
 ```
-cmd/odf-io-stress/   # CLI entrypoint
-pkg/config/          # Config types, load/merge, flags, defaults
+cmd/odf-io-stress/   # CLI entrypoint (run, options, generate-config, hidden s3-worker)
+pkg/config/          # Config types, load/merge, flags, defaults, object profiles
 pkg/fio/             # FIO job definitions (pattern → job)
-pkg/k8s/             # Kubernetes helpers (PVC, pod, snapshot, exec)
-pkg/workload/        # Orchestration (phases, dry-run, sustain)
+pkg/objstore/        # Deterministic keys/payloads and the S3 client used by s3-worker
+pkg/worker/          # In-cluster object phases
+pkg/k8s/             # Kubernetes helpers (PVC, pod, snapshot, ObjectBucketClaim)
+pkg/workload/        # Orchestration (phases, dry-run, object run)
 pkg/report/          # Result collection and summary
+build/Dockerfile     # Worker image
+docs/object-image.md # How to build and pass a custom worker image
 ```

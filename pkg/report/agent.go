@@ -19,9 +19,17 @@ const (
 	ExitUsage      = 2
 	ExitCluster    = 3
 
+	// ExitCleanup and ExitInfra reuse the existing usage and cluster codes so
+	// a FIO-only run keeps the same numbers. Object cleanup failures are exit
+	// 2; a worker that never produced a result is exit 3.
+	ExitCleanup = ExitUsage
+	ExitInfra   = ExitCluster
+
 	ClassHarness = "harness"
 	ClassStorage = "storage"
 	ClassUnknown = "unknown"
+	ClassInfra   = "infra"
+	ClassCleanup = "cleanup"
 )
 
 // AgentSummary is the small document an agent reads after a run.
@@ -75,6 +83,26 @@ type UsedOptions struct {
 	MaxParallelProvision int      `json:"max-parallel-provision"`
 	Sequential           bool     `json:"sequential"`
 	AppType              []string `json:"app-type,omitempty"`
+
+	Object             bool   `json:"object,omitempty"`
+	ObjectOnly         bool   `json:"object-only,omitempty"`
+	ObjectProfile      string `json:"object-profile,omitempty"`
+	ObjectImage        string `json:"object-image,omitempty"`
+	ObjectBuckets      int    `json:"object-buckets,omitempty"`
+	ObjectCount        int    `json:"object-count,omitempty"`
+	ObjectSizeMix      string `json:"object-size-mix,omitempty"`
+	ObjectWorkers      int    `json:"object-workers,omitempty"`
+	ObjectKeyLayout    string `json:"object-key-layout,omitempty"`
+	ObjectVerify       string `json:"object-verify,omitempty"`
+	ObjectVersioned    int    `json:"object-versioned,omitempty"`
+	ObjectPhases       string `json:"object-phases,omitempty"`
+	ObjectDeleteMode   string `json:"object-delete-mode,omitempty"`
+	ObjectStorageClass string `json:"object-storage-class,omitempty"`
+	ObjectProvisioning string `json:"object-provisioning,omitempty"`
+	ObjectSeed         string `json:"object-seed,omitempty"`
+	ObjectResume       bool   `json:"object-resume,omitempty"`
+	ObjectInsecureTLS  bool   `json:"object-insecure-tls,omitempty"`
+	ObjectForce        bool   `json:"object-force,omitempty"`
 }
 
 type FailureBrief struct {
@@ -124,8 +152,15 @@ func BuildAgentSummary(exitCode int, resultsDir string, results []JobResult, run
 		s.Report = filepath.Join(resultsDir, "report.json")
 	}
 	for _, r := range results {
-		if r.Status != "fail" {
+		if r.Status != "fail" && r.Status != "infra-fail" && r.Status != "cleanup-fail" {
 			continue
+		}
+		class := ClassifyFailure(r.VolumeMode, r.Error)
+		switch r.Status {
+		case "infra-fail":
+			class = ClassInfra
+		case "cleanup-fail":
+			class = ClassCleanup
 		}
 		s.Failures = append(s.Failures, FailureBrief{
 			Pod:             r.Pod,
@@ -135,7 +170,7 @@ func BuildAgentSummary(exitCode int, resultsDir string, results []JobResult, run
 			ExitCode:        r.ExitCode,
 			DurationSeconds: roundSeconds(r.Duration.Seconds()),
 			Error:           r.Error,
-			Classification:  ClassifyFailure(r.VolumeMode, r.Error),
+			Classification:  class,
 		})
 	}
 	if runErr != nil {

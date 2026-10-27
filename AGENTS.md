@@ -28,6 +28,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 - --format is the FIO output format: json or normal.
 - tools.vdbench and tools.smallfiles in a config file are ignored.
 - generate-config writes a sample config. -o - writes it to stdout. --force overwrites an existing file. It does not run a workload.
+- The object workload is opt-in via --object. --object-only sets RBD and CephFS PVC counts to 0, skips FIO stress and lifecycle, and is the only case where zero PVCs is valid. --object-resume requires --object-only and --object-seed and does not delete the namespace. --object-profile (smoke, standard, scale, large) applies before other explicit object flags. delete_mode both empties even-ordinal buckets and deletes odd-ordinal OBCs while they are still full; a single bucket uses obc-only. S3 calls run only in worker pods. A capability probe answer of NotImplemented, MethodNotAllowed, or HTTP 501 skips that capability instead of failing the run.
 
 ## run options
 
@@ -68,6 +69,25 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--max-parallel-provision` | `4` | Max in-flight PVC create, bind, pod create, clone, restore, and expand operations |
 | `--sequential` | `false` | Run FIO jobs one at a time |
 | `--app-type` | empty | Comma-separated profiles: `nfs`, `vm`, `database`, `messaging`, `ai` |
+| `--object` | `false` | Enable the NooBaa object workload |
+| `--object-only` | `false` | Run only the object workload (no PVCs or FIO) |
+| `--object-profile` | `standard` | Object profile: `smoke`, `standard`, `scale`, or `large` |
+| `--object-image` | `quay.io/paraggit/odf-io-stress:latest` | Custom object worker image. Overrides the profile and the config file |
+| `--object-buckets` | `10` | Number of object buckets |
+| `--object-count` | `5000` | Objects per bucket |
+| `--object-size-mix` | `4KB:60,1MB:30,16MB:10` | Weighted object sizes |
+| `--object-workers` | `4` | Worker pods per object phase |
+| `--object-key-layout` | `hashed` | Object key layout: `hashed`, `flat`, or `deep` |
+| `--object-verify` | `full` | Object verify mode: `full`, `etag`, or `sample` |
+| `--object-versioned` | `2` | How many buckets have versioning enabled |
+| `--object-phases` | `create,write,read,verify,list,copy,delete,teardown` | Comma-separated object phases |
+| `--object-delete-mode` | `both` | Object delete mode: `recursive`, `obc-only`, or `both` |
+| `--object-storage-class` | `openshift-storage.noobaa.io` | ObjectBucketClaim StorageClass |
+| `--object-provisioning` | `obc` | Bucket provisioning: `obc` or `s3` |
+| `--object-seed` | empty | Hex seed; reproduces a prior object run |
+| `--object-resume` | `false` | Reuse buckets from `--object-seed`; requires `--object-only` and does not delete the namespace |
+| `--object-insecure-tls` | `false` | Skip S3 TLS verification (logged) |
+| `--object-force` | `false` | Run the object workload even when the capacity preflight fails |
 
 ## Recipes
 
@@ -106,6 +126,8 @@ Stdout of `run` is one JSON object. The same bytes are `summary.json` in the res
 | 2 | Bad config or usage | `error` in the JSON. No report. |
 | 3 | Cluster step failed before the run finished cleanly | `error` in the JSON. `summary.json` is written when the results directory exists. |
 
+An object run uses the same numbers for two more outcomes. Exit 2 is also a cleanup failure after the object workload itself passed (stuck OBC finalizers or a namespace left behind); `summary.json` is written in that case. Exit 3 is also an infrastructure failure (`infra-fail`: the worker was OOMKilled, evicted, or exited without a final result). A skipped capability does not fail the run. A hidden `s3-worker` subcommand runs inside the worker pod; it is not part of `odf-io-stress options`.
+
 `failures[]` fields: `pod`, `job`, `storage`, `volumeMode`, `exitCode`, `durationSeconds`, `error`, `classification`.
 
 `classification`:
@@ -113,6 +135,8 @@ Stdout of `run` is one JSON object. The same bytes are `summary.json` in the res
 - `harness` — likely a verify false positive: `bad magic header`, `bad header length`, or `crc32c` verify failed on a Block volume
 - `storage` — the job failed for another reason
 - `unknown` — the failure text was empty
+- `infra` — object worker was OOMKilled, evicted, or exited without a final result
+- `cleanup` — object cleanup left an OBC, ObjectBucket, or namespace behind
 
 `durationSeconds` is seconds. In `report.json`, `duration` is a Go `time.Duration` in nanoseconds.
 

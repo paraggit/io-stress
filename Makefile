@@ -3,8 +3,11 @@ GOFLAGS = -trimpath
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
 DIST = dist
+# Override IMAGE to push somewhere else, including GHCR:
+#   make image-push IMAGE=ghcr.io/paraggit/odf-io-stress:dev
+IMAGE ?= quay.io/paraggit/odf-io-stress:$(VERSION)
 
-.PHONY: build test clean vet lint release-binaries
+.PHONY: build test clean vet lint release-binaries image image-push
 
 build:
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/odf-io-stress/
@@ -28,6 +31,12 @@ release-binaries:
 		GOOS=$${goos} GOARCH=$${goarch} CGO_ENABLED=0 \
 			go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $$out ./cmd/odf-io-stress/; \
 	done
+
+image:
+	docker build -f build/Dockerfile -t $(IMAGE) .
+
+image-push: image
+	docker push $(IMAGE)
 
 clean:
 	rm -f $(BINARY)

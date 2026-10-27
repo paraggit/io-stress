@@ -59,6 +59,31 @@ func TestComputeSummary(t *testing.T) {
 	}
 }
 
+func TestComputeSummary_ObjectPhase(t *testing.T) {
+	results := []JobResult{
+		{Job: "a", Category: "stress", Status: "pass"},
+		{Job: "b", Category: "lifecycle", Status: "fail"},
+		{Job: "c", Category: "object-write", Status: "pass"},
+		{Job: "d", Category: "object-verify", Status: "fail"},
+		{Job: "e", Category: "object-verify", Status: "infra-fail"},
+		{Job: "f", Category: "object-teardown", Status: "cleanup-fail"},
+		{Job: "g", Category: "object-list", Status: "skip"},
+	}
+	s := ComputeSummary(results)
+	if s.Phase1.Total != 1 || s.Phase1.Passed != 1 {
+		t.Fatalf("phase1 = %+v", s.Phase1)
+	}
+	if s.Lifecycle.Total != 1 || s.Lifecycle.Failed != 1 {
+		t.Fatalf("lifecycle = %+v", s.Lifecycle)
+	}
+	if s.Object.Total != 5 || s.Object.Passed != 1 || s.Object.Failed != 1 || s.Object.Skipped != 1 || s.Object.Infra != 1 || s.Object.Cleanup != 1 {
+		t.Fatalf("object = %+v", s.Object)
+	}
+	if s.Failed != 2 || s.Infra != 1 || s.Cleanup != 1 {
+		t.Fatalf("summary = %+v", s)
+	}
+}
+
 func TestComputeSummary_SlowNotFailed(t *testing.T) {
 	results := []JobResult{
 		{Job: "clone-bound", Category: "lifecycle", Status: "slow"},

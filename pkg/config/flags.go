@@ -145,6 +145,85 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 		}
 	})
 
+	// Profile first so later explicit object flags override it.
+	if err == nil && fs.Changed("object-profile") {
+		var name string
+		name, err = fs.GetString("object-profile")
+		if err == nil {
+			err = ApplyObjectProfile(&cfg.Tools.Object, name)
+		}
+	}
+	get("object", func() {
+		cfg.Tools.Object.Enabled, err = fs.GetBool("object")
+	})
+	get("object-only", func() {
+		cfg.Tools.Object.Only, err = fs.GetBool("object-only")
+	})
+	get("object-image", func() {
+		cfg.Tools.Object.Image, err = fs.GetString("object-image")
+	})
+	get("object-buckets", func() {
+		cfg.Tools.Object.Buckets, err = fs.GetInt("object-buckets")
+	})
+	get("object-count", func() {
+		cfg.Tools.Object.ObjectsPerBucket, err = fs.GetInt("object-count")
+	})
+	get("object-size-mix", func() {
+		var raw string
+		raw, err = fs.GetString("object-size-mix")
+		if err == nil {
+			cfg.Tools.Object.SizeMix, err = ParseSizeMix(raw)
+		}
+	})
+	get("object-workers", func() {
+		cfg.Tools.Object.Workers, err = fs.GetInt("object-workers")
+	})
+	get("object-key-layout", func() {
+		cfg.Tools.Object.KeyLayout, err = fs.GetString("object-key-layout")
+	})
+	get("object-verify", func() {
+		cfg.Tools.Object.VerifyMode, err = fs.GetString("object-verify")
+	})
+	get("object-versioned", func() {
+		cfg.Tools.Object.VersionedBuckets, err = fs.GetInt("object-versioned")
+	})
+	get("object-phases", func() {
+		var raw string
+		raw, err = fs.GetString("object-phases")
+		if err != nil {
+			return
+		}
+		var phases []string
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				phases = append(phases, p)
+			}
+		}
+		cfg.Tools.Object.Phases, err = OrderedPhases(phases)
+	})
+	get("object-delete-mode", func() {
+		cfg.Tools.Object.DeleteMode, err = fs.GetString("object-delete-mode")
+	})
+	get("object-storage-class", func() {
+		cfg.Tools.Object.StorageClass, err = fs.GetString("object-storage-class")
+	})
+	get("object-provisioning", func() {
+		cfg.Tools.Object.Provisioning, err = fs.GetString("object-provisioning")
+	})
+	get("object-seed", func() {
+		cfg.Tools.Object.Seed, err = fs.GetString("object-seed")
+	})
+	get("object-resume", func() {
+		cfg.Tools.Object.Resume, err = fs.GetBool("object-resume")
+	})
+	get("object-insecure-tls", func() {
+		cfg.Tools.Object.InsecureTLS, err = fs.GetBool("object-insecure-tls")
+	})
+	get("object-force", func() {
+		cfg.Tools.Object.Force, err = fs.GetBool("object-force")
+	})
+
 	// Backend-only CLI: mentioning one side without the other (and without --num-pvc)
 	// means "only that backend" — zero the unspecified side.
 	if err == nil && !fs.Changed("num-pvc") {

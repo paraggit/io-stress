@@ -43,6 +43,7 @@ type Backend struct {
 
 type Tools struct {
 	FIO        FIO            `yaml:"fio" json:"fio"`
+	Object     Object         `yaml:"object" json:"object"`
 	VDBench    map[string]any `yaml:"vdbench,omitempty" json:"vdbench,omitempty"`
 	SmallFiles map[string]any `yaml:"smallfiles,omitempty" json:"smallfiles,omitempty"`
 }
@@ -109,6 +110,7 @@ func NewDefault() *Config {
 				Suites:       defaultSuites(),
 				AppSuites:    defaultAppSuites(),
 			},
+			Object: standardObject(),
 		},
 	}
 }
@@ -118,7 +120,9 @@ func Validate(cfg *Config) error {
 
 	hasStandard := cfg.Cluster.RBD.NumPVC > 0 || cfg.Cluster.CephFS.NumPVC > 0
 	hasAppTypes := len(cfg.Cluster.AppTypes) > 0
-	if !hasStandard {
+	// The PVC rule applies only when the object workload is off. --object-only
+	// zeroes both counts as a derived default and is a valid run.
+	if !hasStandard && !cfg.Tools.Object.Enabled {
 		return fmt.Errorf("at least one of rbd.num_pvc or cephfs.num_pvc must be >= 1")
 	}
 	if cfg.Cluster.Namespace == "" {
@@ -151,8 +155,9 @@ func Validate(cfg *Config) error {
 	if cfg.Cluster.SeedSize == "" {
 		return fmt.Errorf("seed-size must not be empty")
 	}
-	// Standard suites are used only when app_types is empty.
-	if !cfg.Cluster.SkipFIOStress && !cfg.Cluster.WriteVerify && !cfg.Cluster.SetupOnly && !hasAppTypes && hasStandard {
+	// Standard suites are used only when app_types is empty. The common-pattern
+	// rule applies only when the object workload is disabled.
+	if !cfg.Tools.Object.Enabled && !cfg.Cluster.SkipFIOStress && !cfg.Cluster.WriteVerify && !cfg.Cluster.SetupOnly && !hasAppTypes && hasStandard {
 		if len(cfg.Tools.FIO.Suites.Common) == 0 {
 			return fmt.Errorf("when skip_fio_stress is false and volumes will be created, at least one common FIO pattern must be defined")
 		}
@@ -173,6 +178,9 @@ func Validate(cfg *Config) error {
 	}
 
 	if err := validateAppTypes(cfg); err != nil {
+		return err
+	}
+	if err := validateObject(cfg); err != nil {
 		return err
 	}
 	return nil
@@ -223,6 +231,20 @@ func ApplySetupOnly(cfg *Config) {
 	cfg.Cluster.SkipFIOStress = true
 	cfg.Cluster.SkipLifecycle = true
 	cfg.Cluster.NoCleanup = true
+}
+
+// ApplyObjectOnly zeroes block and file volume counts and skips FIO phases.
+// --skip-fio-stress alone still provisions PVCs; object-only must not.
+// Call it after ApplyWriteVerify so write-verify cannot turn FIO back on.
+func ApplyObjectOnly(cfg *Config) {
+	if cfg == nil || !cfg.Tools.Object.Only {
+		return
+	}
+	cfg.Tools.Object.Enabled = true
+	cfg.Cluster.SkipFIOStress = true
+	cfg.Cluster.SkipLifecycle = true
+	cfg.Cluster.RBD.NumPVC = 0
+	cfg.Cluster.CephFS.NumPVC = 0
 }
 
 func allPatterns(s Suites) []Pattern {
