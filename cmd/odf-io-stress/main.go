@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
+	"github.com/red-hat-storage/odf-io-stress/pkg/worker"
 	"github.com/red-hat-storage/odf-io-stress/pkg/workload"
 	"github.com/spf13/cobra"
 )
@@ -71,11 +72,16 @@ func newRootCmd() *cobra.Command {
 			if cfg.Cluster.SustainRuntime == 0 {
 				cfg.Cluster.SustainRuntime = cfg.Tools.FIO.Runtime * 3
 			}
+			config.ApplyObjectOnly(cfg)
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
 			config.ApplyWriteVerify(cfg)
 			config.ApplySetupOnly(cfg)
+			config.ApplyObjectOnly(cfg)
+			if err := workload.EnsureObjectSeed(cfg); err != nil {
+				return err
+			}
 			if cfg.Cluster.DryRun {
 				return workload.DryRun(cfg)
 			}
@@ -122,6 +128,26 @@ func newRootCmd() *cobra.Command {
 	f.Int("max-parallel-provision", def.Cluster.MaxParallelProvision, "Max in-flight PVC create, bind, pod create, clone, restore, and expand operations")
 	f.Bool("sequential", !def.Tools.FIO.Parallel, "Run FIO workloads sequentially")
 	f.String("app-type", "", "Comma-separated app workload profiles from tools.fio.app_suites (built-ins: "+strings.Join(config.ValidAppTypes(nil), ", ")+")")
+	obj := def.Tools.Object
+	f.Bool("object", obj.Enabled, "Enable the NooBaa object workload")
+	f.Bool("object-only", obj.Only, "Run only the object workload (no PVCs or FIO)")
+	f.String("object-profile", obj.Profile, "Object profile: smoke, standard, scale, or large")
+	f.String("object-image", obj.Image, "Custom object worker image (overrides the profile and config file)")
+	f.Int("object-buckets", obj.Buckets, "Number of object buckets")
+	f.Int("object-count", obj.ObjectsPerBucket, "Objects per bucket")
+	f.String("object-size-mix", config.FormatSizeMix(obj.SizeMix), "Weighted object sizes, for example 4KB:60,1MB:30,16MB:10")
+	f.Int("object-workers", obj.Workers, "Worker pods per object phase")
+	f.String("object-key-layout", obj.KeyLayout, "Object key layout: hashed, flat, or deep")
+	f.String("object-verify", obj.VerifyMode, "Object verify mode: full, etag, or sample")
+	f.Int("object-versioned", obj.VersionedBuckets, "How many buckets have versioning enabled")
+	f.String("object-phases", strings.Join(obj.Phases, ","), "Comma-separated object phases")
+	f.String("object-delete-mode", obj.DeleteMode, "Object delete mode: recursive, obc-only, or both")
+	f.String("object-storage-class", obj.StorageClass, "ObjectBucketClaim StorageClass")
+	f.String("object-provisioning", obj.Provisioning, "Bucket provisioning: obc or s3")
+	f.String("object-seed", "", "Hex seed; reproduces a prior object run")
+	f.Bool("object-resume", false, "Reuse buckets from --object-seed; requires --object-only and does not delete the namespace")
+	f.Bool("object-insecure-tls", obj.InsecureTLS, "Skip S3 TLS verification (logged)")
+	f.Bool("object-force", obj.Force, "Run the object workload even when the capacity preflight fails")
 
 	genCmd := &cobra.Command{
 		Use:          "generate-config",
@@ -154,7 +180,25 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	rootCmd.AddCommand(runCmd, genCmd, optCmd)
+	var specPath string
+	workerCmd := &cobra.Command{
+		Use:          "s3-worker",
+		Short:        "Run one object-workload phase inside the cluster",
+		Hidden:       true,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			spec, err := worker.LoadSpec(specPath)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			return worker.Run(ctx, spec, cmd.OutOrStdout())
+		},
+	}
+	workerCmd.Flags().StringVar(&specPath, "spec", worker.SpecPath, "Path to the job spec JSON")
+
+	rootCmd.AddCommand(runCmd, genCmd, optCmd, workerCmd)
 	return rootCmd
 }
 

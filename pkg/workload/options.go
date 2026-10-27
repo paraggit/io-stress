@@ -1,6 +1,8 @@
 package workload
 
 import (
+	"strings"
+
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
 	"github.com/red-hat-storage/odf-io-stress/pkg/report"
 )
@@ -48,6 +50,28 @@ func usedRunOptions(cfg *config.Config, configPath, recipe string) report.UsedOp
 	}
 	if cfg.Cluster.RBD.NumPVC == cfg.Cluster.CephFS.NumPVC {
 		opts.NumPVC = cfg.Cluster.RBD.NumPVC
+	}
+	if cfg.Tools.Object.Enabled {
+		o := cfg.Tools.Object
+		opts.Object = true
+		opts.ObjectOnly = o.Only
+		opts.ObjectProfile = o.Profile
+		opts.ObjectImage = o.Image
+		opts.ObjectBuckets = o.Buckets
+		opts.ObjectCount = o.ObjectsPerBucket
+		opts.ObjectSizeMix = config.FormatSizeMix(o.SizeMix)
+		opts.ObjectWorkers = o.Workers
+		opts.ObjectKeyLayout = o.KeyLayout
+		opts.ObjectVerify = o.VerifyMode
+		opts.ObjectVersioned = o.VersionedBuckets
+		opts.ObjectPhases = strings.Join(o.Phases, ",")
+		opts.ObjectDeleteMode = o.DeleteMode
+		opts.ObjectStorageClass = o.StorageClass
+		opts.ObjectProvisioning = o.Provisioning
+		opts.ObjectSeed = o.Seed
+		opts.ObjectResume = o.Resume
+		opts.ObjectInsecureTLS = o.InsecureTLS
+		opts.ObjectForce = o.Force
 	}
 	return opts
 }

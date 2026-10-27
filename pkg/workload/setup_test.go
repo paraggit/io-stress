@@ -29,6 +29,34 @@ func TestPodsNeededIncludesCephFSRWX(t *testing.T) {
 	}
 }
 
+func TestPodsNeededObjectOnly(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Tools.Object.Enabled = true
+	cfg.Cluster.RBD.NumPVC = 0
+	cfg.Cluster.CephFS.NumPVC = 0
+	cfg.Tools.Object.Workers = 4
+	cfg.Tools.Object.Buckets = 10
+	cfg.Tools.Object.Phases = []string{"list"}
+	if got := podsNeeded(cfg); got != 10 {
+		t.Fatalf("object list peak = %d, want 10", got)
+	}
+	cfg.Tools.Object.Phases = []string{"write"}
+	if got := podsNeeded(cfg); got != 4 {
+		t.Fatalf("object write peak = %d, want 4", got)
+	}
+}
+
+func TestResetNamespaceSkippedOnResume(t *testing.T) {
+	cfg := config.NewDefault()
+	if !resetNamespace(cfg) {
+		t.Fatal("a FIO run resets the namespace")
+	}
+	cfg.Tools.Object.Resume = true
+	if resetNamespace(cfg) {
+		t.Fatal("object resume must not reset the namespace")
+	}
+}
+
 func TestPlannedPodsVolumeModes(t *testing.T) {
 	cfg := config.NewDefault()
 	cfg.Cluster.RBD.NumPVC = 2

@@ -3,13 +3,15 @@ package k8s
 import (
 	"fmt"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 type Client struct {
-	Clientset  *kubernetes.Clientset
+	Clientset  kubernetes.Interface
+	Dynamic    dynamic.Interface
 	RestConfig *rest.Config
 }
 
@@ -32,6 +34,10 @@ func NewClient(kubeconfigPath string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create clientset: %w", err)
 	}
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create dynamic client: %w", err)
+	}
 
-	return &Client{Clientset: clientset, RestConfig: cfg}, nil
+	return &Client{Clientset: clientset, Dynamic: dyn, RestConfig: cfg}, nil
 }

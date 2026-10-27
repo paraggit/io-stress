@@ -90,6 +90,38 @@ func TestEmitUsage_PrintsJSON(t *testing.T) {
 	}
 }
 
+func TestFinalize_InfraAndCleanup(t *testing.T) {
+	dir := t.TempDir()
+	var stdout bytes.Buffer
+	err := finalize(&stdout, dir, []report.JobResult{
+		{Pod: "w", Job: "write", Category: "object-write", Status: "infra-fail", Error: "OOMKilled"},
+	}, nil, finalizeOpts{writeReport: true})
+	var exit *ExitError
+	if !errors.As(err, &exit) || exit.Code != report.ExitInfra {
+		t.Fatalf("infra err = %v", err)
+	}
+
+	stdout.Reset()
+	err = finalize(&stdout, dir, []report.JobResult{
+		{Pod: "obc", Job: "teardown", Category: "object-teardown", Status: "cleanup-fail", Error: "finalizers=[noobaa.io/obc]"},
+	}, nil, finalizeOpts{writeReport: true})
+	if !errors.As(err, &exit) || exit.Code != report.ExitCleanup {
+		t.Fatalf("cleanup err = %v", err)
+	}
+	var summary report.AgentSummary
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.Failures) != 1 || summary.Failures[0].Classification != report.ClassCleanup {
+		t.Fatalf("failures = %+v", summary.Failures)
+	}
+
+	err = finalize(&stdout, dir, nil, &UsageError{Err: errors.New("projected bytes exceed free capacity")}, finalizeOpts{})
+	if !errors.As(err, &exit) || exit.Code != report.ExitUsage {
+		t.Fatalf("usage err = %v", err)
+	}
+}
+
 func TestFinalize_ClusterBeforeJobs(t *testing.T) {
 	dir := t.TempDir()
 	var stdout bytes.Buffer

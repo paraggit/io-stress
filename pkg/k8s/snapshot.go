@@ -25,6 +25,9 @@ var snapshotClassGVR = schema.GroupVersionResource{
 }
 
 func dynamicClient(c *Client) (dynamic.Interface, error) {
+	if c != nil && c.Dynamic != nil {
+		return c.Dynamic, nil
+	}
 	return dynamic.NewForConfig(c.RestConfig)
 }
 

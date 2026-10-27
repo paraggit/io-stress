@@ -15,20 +15,48 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	cfg := NewDefault()
-	switch ext := strings.ToLower(filepath.Ext(path)); ext {
-	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("parse yaml %s: %w", path, err)
-		}
-	case ".json":
-		if err := json.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("parse json %s: %w", path, err)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported config extension %q (use .yaml, .yml, or .json)", ext)
+	cfg, err := decodeConfig(path, data)
+	if err != nil {
+		return nil, err
 	}
 	MergeAppSuites(cfg)
+	return cfg, nil
+}
+
+func decodeConfig(path string, data []byte) (*Config, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	unmarshal := func(dst *Config) error {
+		switch ext {
+		case ".yaml", ".yml":
+			if err := yaml.Unmarshal(data, dst); err != nil {
+				return fmt.Errorf("parse yaml %s: %w", path, err)
+			}
+		case ".json":
+			if err := json.Unmarshal(data, dst); err != nil {
+				return fmt.Errorf("parse json %s: %w", path, err)
+			}
+		default:
+			return fmt.Errorf("unsupported config extension %q (use .yaml, .yml, or .json)", ext)
+		}
+		return nil
+	}
+	cfg := NewDefault()
+	if err := unmarshal(cfg); err != nil {
+		return nil, err
+	}
+	// A named profile sets the object block wholesale, then the file is applied
+	// again so fields written next to `profile` still win.
+	profile := cfg.Tools.Object.Profile
+	if profile != "" && profile != "custom" {
+		base := NewDefault()
+		if err := ApplyObjectProfile(&base.Tools.Object, profile); err != nil {
+			return nil, err
+		}
+		if err := unmarshal(base); err != nil {
+			return nil, err
+		}
+		cfg = base
+	}
 	return cfg, nil
 }
 

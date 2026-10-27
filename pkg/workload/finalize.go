@@ -1,6 +1,7 @@
 package workload
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -8,6 +9,28 @@ import (
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/report"
 )
+
+// UsageError is a bad flag combination or a preflight refusal. Exit code 2.
+type UsageError struct{ Err error }
+
+func (e *UsageError) Error() string {
+	if e == nil || e.Err == nil {
+		return "invalid object run"
+	}
+	return e.Err.Error()
+}
+func (e *UsageError) Unwrap() error { return e.Err }
+
+// CleanupError is a passing workload that left resources behind. Exit code 2.
+type CleanupError struct{ Err error }
+
+func (e *CleanupError) Error() string {
+	if e == nil || e.Err == nil {
+		return "cleanup failed"
+	}
+	return e.Err.Error()
+}
+func (e *CleanupError) Unwrap() error { return e.Err }
 
 // ExitError is a finished run whose process exit code is Code.
 // Emitted means the agent JSON summary was already written to stdout.
@@ -43,14 +66,28 @@ func finalize(w io.Writer, dir string, results []report.JobResult, runErr error,
 	counts := report.ComputeSummary(results)
 
 	code := report.ExitPass
+	var usage *UsageError
+	var cleanup *CleanupError
 	switch {
-	case runErr != nil && counts.Failed > 0:
-		code = report.ExitJobsFailed
-	case runErr != nil:
-		code = report.ExitCluster
 	case counts.Failed > 0:
 		code = report.ExitJobsFailed
-		runErr = fmt.Errorf("%d job(s) failed", counts.Failed)
+		if runErr == nil {
+			runErr = fmt.Errorf("%d job(s) failed", counts.Failed)
+		}
+	case counts.Infra > 0:
+		code = report.ExitInfra
+		if runErr == nil {
+			runErr = fmt.Errorf("%d infrastructure failure(s)", counts.Infra)
+		}
+	case errors.As(runErr, &usage):
+		code = report.ExitUsage
+	case counts.Cleanup > 0 || errors.As(runErr, &cleanup):
+		code = report.ExitCleanup
+		if runErr == nil {
+			runErr = fmt.Errorf("%d cleanup failure(s)", counts.Cleanup)
+		}
+	case runErr != nil:
+		code = report.ExitCluster
 	}
 
 	reportWritten := false

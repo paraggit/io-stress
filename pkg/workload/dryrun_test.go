@@ -56,4 +56,39 @@ func TestDryRun(t *testing.T) {
 	if !strings.Contains(output, `drop: ["ALL"]`) {
 		t.Error("filesystem pods should drop all capabilities")
 	}
+	if strings.Contains(output, "ObjectBucketClaim") {
+		t.Error("object manifests must stay out of a FIO dry-run")
+	}
+}
+
+func TestDryRunObject(t *testing.T) {
+	cfg := config.NewDefault()
+	cfg.Tools.Object.Enabled = true
+	cfg.Tools.Object.Only = true
+	cfg.Cluster.RBD.NumPVC = 0
+	cfg.Cluster.CephFS.NumPVC = 0
+	cfg.Tools.Object.Buckets = 2
+	cfg.Tools.Object.Seed = strings.Repeat("ab", 32)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err := DryRun(cfg)
+	w.Close()
+	os.Stdout = old
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	stdout.ReadFrom(r)
+	output := stdout.String()
+	if !strings.Contains(output, "kind: ObjectBucketClaim") {
+		t.Fatal("missing ObjectBucketClaim")
+	}
+	if !strings.Contains(output, "bucketName:") || strings.Contains(output, "generateBucketName:") {
+		t.Fatalf("bucket name must be explicit:\n%s", output)
+	}
+	if !strings.Contains(output, "s3-worker") || !strings.Contains(output, "restartPolicy: Never") {
+		t.Fatalf("worker pod missing:\n%s", output)
+	}
 }
