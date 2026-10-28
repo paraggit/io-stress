@@ -74,7 +74,12 @@ type PhaseSummary struct {
 	Slow    int `json:"slow,omitempty"`
 	Infra   int `json:"infra,omitempty"`
 	Cleanup int `json:"cleanup,omitempty"`
+	omit    bool
 }
+
+// IsZero drops a volume phase from an object-only summary. A FIO summary
+// keeps the phase, including an all-zero lifecycle block.
+func (p PhaseSummary) IsZero() bool { return p.omit }
 
 type Summary struct {
 	Total     int          `json:"total"`
@@ -84,9 +89,18 @@ type Summary struct {
 	Slow      int          `json:"slow,omitempty"`
 	Infra     int          `json:"infra,omitempty"`
 	Cleanup   int          `json:"cleanup,omitempty"`
-	Phase1    PhaseSummary `json:"phase1"`
-	Lifecycle PhaseSummary `json:"lifecycle"`
+	Phase1    PhaseSummary `json:"phase1,omitzero"`
+	Lifecycle PhaseSummary `json:"lifecycle,omitzero"`
 	Object    PhaseSummary `json:"object,omitempty"`
+}
+
+// OmitVolumePhases removes the empty FIO phase objects from an object-only summary.
+func (s *Summary) OmitVolumePhases() {
+	if s == nil {
+		return
+	}
+	s.Phase1.omit = true
+	s.Lifecycle.omit = true
 }
 
 type RunReport struct {

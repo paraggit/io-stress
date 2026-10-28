@@ -109,8 +109,8 @@ func execute(ctx context.Context, cfg *config.Config, client *k8s.Client, base f
 		if err := runPhase1(ctx, cfg, client, readyPods, collector); err != nil {
 			return collector.Results(), err, opts
 		}
-	} else {
-		log.Println("Phase 1 skipped (--skip-fio-stress)")
+	} else if notice := phase1SkipNotice(cfg); notice != "" {
+		log.Println(notice)
 	}
 
 	if !cfg.Cluster.SkipLifecycle {
@@ -128,6 +128,15 @@ func execute(ctx context.Context, cfg *config.Config, client *k8s.Client, base f
 		}
 	}
 	return collector.Results(), nil, opts
+}
+
+// phase1SkipNotice is the log line for a FIO run that skipped stress.
+// An object-only run never ran FIO, so it stays quiet.
+func phase1SkipNotice(cfg *config.Config) string {
+	if cfg != nil && cfg.Cluster.SkipFIOStress && !cfg.Tools.Object.Only {
+		return "Phase 1 skipped (--skip-fio-stress)"
+	}
+	return ""
 }
 
 // resetNamespace reports whether this run deletes and recreates the namespace

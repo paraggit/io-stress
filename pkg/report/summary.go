@@ -9,16 +9,18 @@ import (
 )
 
 // PrintSummary writes the human-readable counts to stderr so stdout can stay
-// a single JSON agent summary.
-func PrintSummary(results []JobResult) {
-	writeSummary(os.Stderr, results)
+// a single JSON agent summary. objectOnly omits the FIO phase and combined lines.
+func PrintSummary(results []JobResult, objectOnly bool) {
+	writeSummary(os.Stderr, results, objectOnly)
 }
 
-func writeSummary(w io.Writer, results []JobResult) {
+func writeSummary(w io.Writer, results []JobResult, objectOnly bool) {
 	s := ComputeSummary(results)
 	fmt.Fprintln(w, "=== RESULTS ===")
-	fmt.Fprintf(w, "  Phase 1   - Total: %d  Passed: %d  Failed: %d  Skipped: %d\n",
-		s.Phase1.Total, s.Phase1.Passed, s.Phase1.Failed, s.Phase1.Skipped)
+	if !objectOnly {
+		fmt.Fprintf(w, "  Phase 1   - Total: %d  Passed: %d  Failed: %d  Skipped: %d\n",
+			s.Phase1.Total, s.Phase1.Passed, s.Phase1.Failed, s.Phase1.Skipped)
+	}
 	if s.Lifecycle.Total > 0 {
 		fmt.Fprintf(w, "  Lifecycle - Total: %d  Passed: %d  Failed: %d  Skipped: %d",
 			s.Lifecycle.Total, s.Lifecycle.Passed, s.Lifecycle.Failed, s.Lifecycle.Skipped)
@@ -27,15 +29,17 @@ func writeSummary(w io.Writer, results []JobResult) {
 		}
 		fmt.Fprintln(w)
 	}
-	if s.Object.Total > 0 {
+	if objectOnly || s.Object.Total > 0 {
 		writeObjectSummary(w, results, s)
 	}
-	fmt.Fprintf(w, "  Combined  - Total: %d  Passed: %d  Failed: %d  Skipped: %d",
-		s.Total, s.Passed, s.Failed, s.Skipped)
-	if s.Slow > 0 {
-		fmt.Fprintf(w, "  Slow: %d", s.Slow)
+	if !objectOnly {
+		fmt.Fprintf(w, "  Combined  - Total: %d  Passed: %d  Failed: %d  Skipped: %d",
+			s.Total, s.Passed, s.Failed, s.Skipped)
+		if s.Slow > 0 {
+			fmt.Fprintf(w, "  Slow: %d", s.Slow)
+		}
+		fmt.Fprintln(w)
 	}
-	fmt.Fprintln(w)
 }
 
 func writeObjectSummary(w io.Writer, results []JobResult, s Summary) {

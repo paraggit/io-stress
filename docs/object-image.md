@@ -6,7 +6,7 @@ The object workload does not run S3 calls on your laptop. Each phase runs in a p
 /usr/local/bin/odf-io-stress s3-worker --spec /etc/objstress/spec.json
 ```
 
-The default image is `quay.io/paraggit/odf-io-stress:latest`. Build your own when that tag is missing, private, or older than the binary you are running. Pass the result with `--object-image`.
+The default image is `ghcr.io/paraggit/odf-io-stress:latest`. Build your own when that tag is missing, private, or older than the binary you are running. Pass the result with `--object-image`.
 
 The FIO image (`--image`, default `quay.io/ocsci/nginx:fio`) is a different container. It does not run the object workload.
 
@@ -76,7 +76,7 @@ ghcr.io/paraggit/odf-io-stress:v0.0.<run>-<sha>
 ghcr.io/paraggit/odf-io-stress:latest
 ```
 
-A fork publishes under its own owner, `ghcr.io/<owner>/odf-io-stress`. The workflow also pushes `quay.io/paraggit/odf-io-stress` when `QUAY_USERNAME` and `QUAY_PASSWORD` are set. The tool's default remains `quay.io/paraggit/odf-io-stress:latest`. Point a run at the GHCR tag with `--object-image`.
+A fork publishes under its own owner, `ghcr.io/<owner>/odf-io-stress`. The workflow also pushes `quay.io/paraggit/odf-io-stress` when `QUAY_USERNAME` and `QUAY_PASSWORD` are set. The tool default is `ghcr.io/paraggit/odf-io-stress:latest`.
 
 After the first push, open the package settings and set the visibility to Public if the cluster should pull it with no credentials. A private package returns `401` or `403` to the worker pod, and this tool does not install a pull secret.
 
@@ -94,14 +94,13 @@ Worker pods do not set `imagePullPolicy`. Kubernetes then uses `Always` when the
 ## Run with that image
 
 ```bash
+# Default image, ghcr.io/paraggit/odf-io-stress:latest
+./odf-io-stress run --object-only --object-profile smoke \
+  --results-dir results/object-smoke
+
 # Image you built and pushed
 ./odf-io-stress run --object-only --object-profile smoke \
   --object-image quay.io/my-org/odf-io-stress:dev \
-  --results-dir results/object-smoke
-
-# Image published to GHCR from main
-./odf-io-stress run --object-only --object-profile smoke \
-  --object-image ghcr.io/paraggit/odf-io-stress:latest \
   --results-dir results/object-smoke
 ```
 

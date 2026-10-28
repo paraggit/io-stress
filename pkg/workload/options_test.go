@@ -3,6 +3,8 @@ package workload
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
@@ -38,6 +40,59 @@ func TestUsedRunOptions(t *testing.T) {
 	cfg.Cluster.CephFS.NumPVC = 2
 	if usedRunOptions(cfg, "", "").NumPVC != 2 {
 		t.Fatal("num-pvc should be set when both backends match")
+	}
+}
+
+func TestPhase1SkipNotice(t *testing.T) {
+	fio := config.NewDefault()
+	fio.Cluster.SkipFIOStress = true
+	if phase1SkipNotice(fio) != "Phase 1 skipped (--skip-fio-stress)" {
+		t.Fatalf("fio notice = %q", phase1SkipNotice(fio))
+	}
+	obj := config.NewDefault()
+	config.ApplyObjectOnly(obj)
+	if phase1SkipNotice(obj) != "" {
+		t.Fatalf("object-only notice = %q", phase1SkipNotice(obj))
+	}
+}
+
+func TestFinalize_ObjectOnlyOmitsFIOSummary(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.NewDefault()
+	cfg.Tools.Object.Only = true
+	config.ApplyObjectOnly(cfg)
+	cfg.Cluster.Namespace = "odf-io-stress"
+	cfg.Cluster.ResultsDir = dir
+	var stdout bytes.Buffer
+	err := finalize(&stdout, dir, []report.JobResult{{
+		Pod: "w", Job: "write", Category: "object-write", Status: "pass", Storage: "noobaa", VolumeMode: "Object",
+		ObjectOutput: &report.ObjectResult{Bucket: "b", Phase: "write", ObjectsOK: 2},
+	}}, nil, finalizeOpts{
+		writeReport: true,
+		printHuman:  false,
+		hasOptions:  true,
+		options:     usedRunOptions(cfg, "", ""),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := stdout.Bytes()
+	for _, bad := range []string{`"phase1"`, `"lifecycle"`, `"rbd-num-pvc"`, `"image"`, `"skip-fio-stress"`, `"bs"`} {
+		if bytes.Contains(raw, []byte(bad)) {
+			t.Errorf("summary contains %s", bad)
+		}
+	}
+	for _, good := range []string{`"object"`, `"object-only"`, `"namespace"`} {
+		if !bytes.Contains(raw, []byte(good)) {
+			t.Errorf("summary missing %s: %s", good, raw)
+		}
+	}
+	reportRaw, readErr := os.ReadFile(filepath.Join(dir, "report.json"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if bytes.Contains(reportRaw, []byte(`"phase1"`)) || bytes.Contains(reportRaw, []byte(`"lifecycle"`)) {
+		t.Fatalf("report.json still has volume phases: %s", reportRaw)
 	}
 }
 

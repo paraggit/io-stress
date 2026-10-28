@@ -105,6 +105,81 @@ type UsedOptions struct {
 	ObjectForce        bool   `json:"object-force,omitempty"`
 }
 
+// objectOnlyOptions is the flag set written for --object-only. Volume and FIO
+// flags stay off this object so the summary does not describe a FIO run.
+type objectOnlyOptions struct {
+	Config               string `json:"config,omitempty"`
+	Recipe               string `json:"recipe,omitempty"`
+	Kubeconfig           string `json:"kubeconfig"`
+	Namespace            string `json:"namespace"`
+	Prefix               string `json:"prefix"`
+	ResultsDir           string `json:"results-dir,omitempty"`
+	Timeout              string `json:"timeout"`
+	NoCleanup            bool   `json:"no-cleanup"`
+	DryRun               bool   `json:"dry-run"`
+	MaxParallel          int    `json:"max-parallel"`
+	MaxParallelProvision int    `json:"max-parallel-provision"`
+
+	Object             bool   `json:"object,omitempty"`
+	ObjectOnly         bool   `json:"object-only,omitempty"`
+	ObjectProfile      string `json:"object-profile,omitempty"`
+	ObjectImage        string `json:"object-image,omitempty"`
+	ObjectBuckets      int    `json:"object-buckets,omitempty"`
+	ObjectCount        int    `json:"object-count,omitempty"`
+	ObjectSizeMix      string `json:"object-size-mix,omitempty"`
+	ObjectWorkers      int    `json:"object-workers,omitempty"`
+	ObjectKeyLayout    string `json:"object-key-layout,omitempty"`
+	ObjectVerify       string `json:"object-verify,omitempty"`
+	ObjectVersioned    int    `json:"object-versioned,omitempty"`
+	ObjectPhases       string `json:"object-phases,omitempty"`
+	ObjectDeleteMode   string `json:"object-delete-mode,omitempty"`
+	ObjectStorageClass string `json:"object-storage-class,omitempty"`
+	ObjectProvisioning string `json:"object-provisioning,omitempty"`
+	ObjectSeed         string `json:"object-seed,omitempty"`
+	ObjectResume       bool   `json:"object-resume,omitempty"`
+	ObjectInsecureTLS  bool   `json:"object-insecure-tls,omitempty"`
+	ObjectForce        bool   `json:"object-force,omitempty"`
+}
+
+func (o UsedOptions) MarshalJSON() ([]byte, error) {
+	if !o.ObjectOnly {
+		type full UsedOptions
+		return json.Marshal(full(o))
+	}
+	return json.Marshal(objectOnlyOptions{
+		Config:               o.Config,
+		Recipe:               o.Recipe,
+		Kubeconfig:           o.Kubeconfig,
+		Namespace:            o.Namespace,
+		Prefix:               o.Prefix,
+		ResultsDir:           o.ResultsDir,
+		Timeout:              o.Timeout,
+		NoCleanup:            o.NoCleanup,
+		DryRun:               o.DryRun,
+		MaxParallel:          o.MaxParallel,
+		MaxParallelProvision: o.MaxParallelProvision,
+		Object:               o.Object,
+		ObjectOnly:           o.ObjectOnly,
+		ObjectProfile:        o.ObjectProfile,
+		ObjectImage:          o.ObjectImage,
+		ObjectBuckets:        o.ObjectBuckets,
+		ObjectCount:          o.ObjectCount,
+		ObjectSizeMix:        o.ObjectSizeMix,
+		ObjectWorkers:        o.ObjectWorkers,
+		ObjectKeyLayout:      o.ObjectKeyLayout,
+		ObjectVerify:         o.ObjectVerify,
+		ObjectVersioned:      o.ObjectVersioned,
+		ObjectPhases:         o.ObjectPhases,
+		ObjectDeleteMode:     o.ObjectDeleteMode,
+		ObjectStorageClass:   o.ObjectStorageClass,
+		ObjectProvisioning:   o.ObjectProvisioning,
+		ObjectSeed:           o.ObjectSeed,
+		ObjectResume:         o.ObjectResume,
+		ObjectInsecureTLS:    o.ObjectInsecureTLS,
+		ObjectForce:          o.ObjectForce,
+	})
+}
+
 type FailureBrief struct {
 	Pod             string  `json:"pod"`
 	Job             string  `json:"job"`

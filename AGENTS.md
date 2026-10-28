@@ -72,7 +72,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--object` | `false` | Enable the NooBaa object workload |
 | `--object-only` | `false` | Run only the object workload (no PVCs or FIO) |
 | `--object-profile` | `standard` | Object profile: `smoke`, `standard`, `scale`, or `large` |
-| `--object-image` | `quay.io/paraggit/odf-io-stress:latest` | Custom object worker image. Overrides the profile and the config file |
+| `--object-image` | `ghcr.io/paraggit/odf-io-stress:latest` | Custom object worker image. Overrides the profile and the config file |
 | `--object-buckets` | `10` | Number of object buckets |
 | `--object-count` | `5000` | Objects per bucket |
 | `--object-size-mix` | `4KB:60,1MB:30,16MB:10` | Weighted object sizes |
@@ -117,7 +117,7 @@ odf-io-stress run --recipe smoke --runtime 15 --results-dir results/smoke
 
 Stdout of `run` is one JSON object. The same bytes are `summary.json` in the results directory. Logs and the human `=== RESULTS ===` block go to stderr.
 
-`options` on that object is the effective flag set for the run. `num-pvc` is present only when the RBD and CephFS counts are equal. `rbd-num-pvc` and `cephfs-num-pvc` are always the counts that were used.
+`options` on that object is the effective flag set for the run. `num-pvc` is present only when the RBD and CephFS counts are equal. `rbd-num-pvc` and `cephfs-num-pvc` are always the counts that were used. An `--object-only` run omits `phase1`, `lifecycle`, and the FIO and volume flags. Its human results block has the object lines only, and the log does not say phase 1 was skipped.
 
 | Exit | Meaning | What to read |
 |------|---------|----------------|
