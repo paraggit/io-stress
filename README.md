@@ -31,7 +31,7 @@ Every merge (push) to `main` triggers GitHub Actions to test, cross-compile bina
 
 Version format: `v0.0.<run_number>-<short_sha>` (for example `v0.0.12-a1b2c3d`).
 
-The image tags are `ghcr.io/paraggit/odf-io-stress:<version>` and `ghcr.io/paraggit/odf-io-stress:latest`. The same build is also pushed to `quay.io/paraggit/odf-io-stress` when the `QUAY_USERNAME` and `QUAY_PASSWORD` secrets are set. Pass either reference with `--object-image`. Details are in [docs/object-image.md](docs/object-image.md).
+The image tags are `ghcr.io/paraggit/odf-io-stress:<version>` and `ghcr.io/paraggit/odf-io-stress:latest`. A run uses `ghcr.io/paraggit/odf-io-stress:latest` unless `--object-image` is set. The same build is also pushed to `quay.io/paraggit/odf-io-stress` when the `QUAY_USERNAME` and `QUAY_PASSWORD` secrets are set. Details are in [docs/object-image.md](docs/object-image.md).
 
 Artifacts (linux/darwin × amd64/arm64) and SHA256 checksums are attached to the release. Locally you can build the same set with:
 
@@ -172,7 +172,7 @@ tools:
   object:
     enabled: false                 # true, or pass --object / --object-only
     profile: standard              # smoke | standard | scale | large
-    image: quay.io/paraggit/odf-io-stress:latest
+    image: ghcr.io/paraggit/odf-io-stress:latest
     buckets: 10
     objects_per_bucket: 5000
     key_layout: hashed             # hashed | flat | deep
@@ -226,7 +226,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--object` | `false` | Enable the NooBaa object workload alongside FIO |
 | `--object-only` | `false` | Run only the object workload. Sets RBD and CephFS PVC counts to 0 and skips FIO |
 | `--object-profile` | `standard` | `smoke`, `standard`, `scale`, or `large`. Applied before the other object flags |
-| `--object-image` | `quay.io/paraggit/odf-io-stress:latest` | Custom worker image. Overrides the profile and the config file. The image must contain this binary |
+| `--object-image` | `ghcr.io/paraggit/odf-io-stress:latest` | Custom worker image. Overrides the profile and the config file. The image must contain this binary |
 | `--object-buckets` | `10` | Number of buckets |
 | `--object-count` | `5000` | Objects per bucket |
 | `--object-size-mix` | `4KB:60,1MB:30,16MB:10` | Weighted sizes, for example `4KB:80,1MB:20` |
@@ -254,7 +254,7 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 
 `--object` runs a NooBaa / MCG S3 workload in the same namespace as FIO. `--object-only` runs it alone: PVC counts become 0 and FIO is skipped. Without either flag, a run is unchanged.
 
-The control plane uses only the Kubernetes API. Worker pods run this binary's `s3-worker` command and make every S3 call, including bucket creation when `--object-provisioning s3`. Build an image with `make image` and pass it on the command line with `--object-image`. The default is `quay.io/paraggit/odf-io-stress:latest`. [docs/object-image.md](docs/object-image.md) is the build and push walkthrough.
+The control plane uses only the Kubernetes API. Worker pods run this binary's `s3-worker` command and make every S3 call, including bucket creation when `--object-provisioning s3`. Build an image with `make image` and pass it on the command line with `--object-image`. The default is `ghcr.io/paraggit/odf-io-stress:latest`. [docs/object-image.md](docs/object-image.md) is the build and push walkthrough.
 
 Bucket names come from the seed: `<key-prefix>-<first 8 hex chars>-<ordinal>`, for example `objstress-4f2a9c1d-007`. The seed is random when unset, printed on stderr, and stored in `summary.json` as `options.object-seed`. Object bytes are derived from that seed, so a later verify does not need a saved object list. Repeat the same profile, bucket count, object count, size mix, and key layout when you resume.
 
@@ -276,12 +276,7 @@ Bucket names come from the seed: `<key-prefix>-<first 8 hex chars>-<ordinal>`, f
 # Shrink a profile. Explicit flags override the profile
 ./odf-io-stress run --object-only --object-profile smoke --object-buckets 1 --object-count 20
 
-# Image published to GHCR on each push to main
-./odf-io-stress run --object-only --object-profile smoke \
-  --object-image ghcr.io/paraggit/odf-io-stress:latest \
-  --results-dir results/object-smoke
-
-# Use your own worker image instead of the default
+# Use your own worker image instead of ghcr.io/paraggit/odf-io-stress:latest
 ./odf-io-stress run --object-only --object-profile smoke \
   --object-image quay.io/my-org/odf-io-stress:dev \
   --results-dir results/object-smoke
@@ -359,7 +354,7 @@ tools:
   object:
     enabled: true
     profile: smoke
-    image: quay.io/paraggit/odf-io-stress:latest
+    image: ghcr.io/paraggit/odf-io-stress:latest
     provisioning: obc          # obc | s3
     storage_class: openshift-storage.noobaa.io
     noobaa_namespace: openshift-storage
@@ -584,7 +579,7 @@ Stdout is that same `summary.json` object. Logs and the human `=== RESULTS ===` 
 
 Exit status: `0` pass, `1` the run finished and at least one job failed, `2` bad config or usage, `3` the cluster step failed before jobs finished. A non-zero exit sets the JSON `error` field (`N job(s) failed` on exit 1). `failures[].classification` is `harness` (known verify false positive), `storage`, or `unknown`. `failures[].durationSeconds` is seconds; `report.json` `duration` remains a Go duration in nanoseconds.
 
-On an object run, exit 2 is also a cleanup failure after the workload passed (stuck OBC finalizers; the report is still written) and exit 3 is also an infrastructure failure (`infra-fail`, classification `infra`). Those two classifications are `cleanup` and `infra`. A capability the cluster does not implement is `skip`, not a failure.
+On an object run, exit 2 is also a cleanup failure after the workload passed (stuck OBC finalizers; the report is still written) and exit 3 is also an infrastructure failure (`infra-fail`, classification `infra`). Those two classifications are `cleanup` and `infra`. A capability the cluster does not implement is `skip`, not a failure. `--object-only` leaves `phase1`, `lifecycle`, and the FIO and volume flags out of `summary.json`. The human results block for that run is the object lines only.
 
 The `results/` directory is gitignored.
 

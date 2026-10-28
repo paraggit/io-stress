@@ -10,7 +10,7 @@ import (
 )
 
 // DefaultObjectImage is the worker image used when --object-image is not set.
-const DefaultObjectImage = "quay.io/paraggit/odf-io-stress:latest"
+const DefaultObjectImage = "ghcr.io/paraggit/odf-io-stress:latest"
 
 // ObjectPhases is the canonical phase order. A subset in config or flags is
 // filtered back into this order.

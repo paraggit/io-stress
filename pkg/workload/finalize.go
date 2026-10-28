@@ -64,6 +64,9 @@ func finalize(w io.Writer, dir string, results []report.JobResult, runErr error,
 		results = []report.JobResult{}
 	}
 	counts := report.ComputeSummary(results)
+	if opts.options.ObjectOnly {
+		counts.OmitVolumePhases()
+	}
 
 	code := report.ExitPass
 	var usage *UsageError
@@ -111,12 +114,15 @@ func finalize(w io.Writer, dir string, results []report.JobResult, runErr error,
 	}
 
 	agent := report.BuildAgentSummary(code, dir, results, runErr, reportWritten)
+	if opts.options.ObjectOnly {
+		agent.Summary.OmitVolumePhases()
+	}
 	if opts.hasOptions {
 		recorded := opts.options
 		agent.Options = &recorded
 	}
 	if opts.printHuman {
-		report.PrintSummary(results)
+		report.PrintSummary(results, opts.options.ObjectOnly)
 	}
 	if dir != "" {
 		log.Printf("Results in %s", dir)
