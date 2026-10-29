@@ -350,7 +350,7 @@ Phases always run in this order. `--object-phases` selects a subset.
 
 `delete_mode: both` (the default) empties even-numbered buckets and deletes odd-numbered claims while they are still full. A single bucket uses `obc-only`, so the finalizer path is the one that runs.
 
-Versioning, multipart, version listing, copy, and batch delete are probed first. `NotImplemented`, `MethodNotAllowed`, and HTTP 501 skip that operation. A supported operation that then fails fails the run.
+Versioning, multipart, version listing, copy, and batch delete are probed first. `NotImplemented`, `MethodNotAllowed`, `AccessDenied`, HTTP 403, HTTP 405, and HTTP 501 skip that operation. A supported operation that then fails fails the run.
 
 ### Config
 
@@ -457,7 +457,6 @@ Built-in profiles remain available unless you override the same key. Pattern `pa
 
 | Gap | Why FIO-only is insufficient |
 |-----|------------------------------|
-| RGW / Ceph Object Gateway | `--object-backend=rgw` reuses the object workload via OBC, discovers the bucket provisioner `openshift-storage.ceph.rook.io/bucket` unless `--object-storage-class` is set, and rejects `--object-provisioning=s3`; built-in disruption injection and time-series latency are still out of scope |
 | Real NFS-Ganesha / CSI NFS | Needs NFS mount + metadata tools (e.g. smallfiles) |
 | Real CNV VMs | Needs KubeVirt guests, not only block FIO |
 | Real databases / brokers | Needs pgbench/sysbench/kafka tools |
