@@ -355,6 +355,10 @@ func (rt *runtime) copyBucket(ctx context.Context, c *objstore.Client, a *acc) e
 				a.skip("copy unsupported: " + err.Error())
 				return nil
 			}
+			if objstore.IsCopyLimit(err) {
+				a.skip("copy skipped: " + err.Error())
+				return nil
+			}
 			a.fail(err)
 			return nil
 		}

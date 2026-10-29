@@ -74,6 +74,8 @@ metadata:
 	for ordinal := 0; ordinal < obj.Buckets; ordinal++ {
 		name := objstore.BucketName(obj.KeyPrefix, seed, ordinal)
 		if obj.Provisioning == "obc" {
+			// StorageClass is the class ResolveObjectBackend wrote back.
+			// BucketClass is empty for RGW, so BuildOBC omits additionalConfig.
 			raw, err := sigsyaml.Marshal(k8s.BuildOBC(k8s.OBCSpec{
 				Name:         name,
 				Namespace:    cfg.Cluster.Namespace,

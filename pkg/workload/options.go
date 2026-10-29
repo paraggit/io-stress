@@ -55,6 +55,12 @@ func usedRunOptions(cfg *config.Config, configPath, recipe string) report.UsedOp
 		o := cfg.Tools.Object
 		opts.Object = true
 		opts.ObjectOnly = o.Only
+		backend := o.Backend
+		if strings.TrimSpace(backend) == "" {
+			backend = config.BackendNooBaa
+		}
+		opts.ObjectBackend = backend
+		opts.ObjectOBCDeleteTimeout = o.OBCDeleteTimeout.Duration().String()
 		opts.ObjectProfile = o.Profile
 		opts.ObjectImage = o.Image
 		opts.ObjectBuckets = o.Buckets
@@ -73,5 +79,15 @@ func usedRunOptions(cfg *config.Config, configPath, recipe string) report.UsedOp
 		opts.ObjectInsecureTLS = o.InsecureTLS
 		opts.ObjectForce = o.Force
 	}
+	return opts
+}
+
+// refreshRunOptions rebuilds summary options after ResolveObjectBackend writes
+// a discovered storage class back onto cfg. Config path and recipe are kept.
+func refreshRunOptions(opts finalizeOpts, cfg *config.Config) finalizeOpts {
+	if cfg == nil {
+		return opts
+	}
+	opts.options = usedRunOptions(cfg, opts.options.Config, opts.options.Recipe)
 	return opts
 }

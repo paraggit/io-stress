@@ -72,11 +72,16 @@ type objectRun struct {
 	seed      [32]byte
 	buckets   []bucketBind
 	deleteRan bool
+	backend   objectBackend
 	mu        sync.Mutex
 	usageErr  error
 }
 
 func runObject(ctx context.Context, cfg *config.Config, client *k8s.Client, collector *report.Collector) error {
+	backend, err := ResolveObjectBackend(ctx, client, cfg)
+	if err != nil {
+		return err
+	}
 	if err := EnsureObjectSeed(cfg); err != nil {
 		return err
 	}
@@ -94,7 +99,7 @@ func runObject(ctx context.Context, cfg *config.Config, client *k8s.Client, coll
 			return err
 		}
 	}
-	o := &objectRun{ctx: ctx, cfg: cfg, client: client, collector: collector, seed: seed}
+	o := &objectRun{ctx: ctx, cfg: cfg, client: client, collector: collector, seed: seed, backend: backend}
 	log.Printf("Object workload: profile=%s buckets=%d objects=%d phases=%s seed=%s", obj.Profile, obj.Buckets, obj.ObjectsPerBucket, strings.Join(phases, ","), obj.Seed)
 	if obj.InsecureTLS {
 		log.Printf("WARNING: object TLS verification is disabled (--object-insecure-tls). The worker will not authenticate the S3 endpoint.")
@@ -155,6 +160,8 @@ func runObject(ctx context.Context, cfg *config.Config, client *k8s.Client, coll
 	return nil
 }
 
+// prepareTLS installs the service-CA bundle for both backends.
+// An http endpoint does not use the mounted bundle.
 func (o *objectRun) prepareTLS(ctx context.Context) error {
 	ns := o.cfg.Cluster.Namespace
 	if err := k8s.EnsureServiceCA(ctx, o.client, ns); err != nil {
@@ -178,14 +185,15 @@ func (o *objectRun) preflight(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	free, found, err := k8s.NooBaaFreeBytes(ctx, o.client, obj.NooBaaNamespace)
-	if err != nil || !found {
-		log.Printf("WARNING: could not read NooBaa free capacity in %s (%v); continuing", obj.NooBaaNamespace, err)
+	ns := obj.ODFNamespace
+	free, found, readErr := o.backend.freeBytes(ctx, o.client, ns)
+	if readErr != nil || !found {
+		log.Printf("WARNING: could not read %s free capacity in %s (%v); continuing", o.backend.capacitySource(), ns, readErr)
 		return nil
 	}
-	log.Printf("capacity preflight: projected %d bytes, free %d bytes", projected, free)
+	log.Print(o.backend.capacityLog(ns, projected, free))
 	if projected > free {
-		return &UsageError{Err: fmt.Errorf("projected %d bytes exceeds NooBaa free capacity %d bytes; pass --object-force to continue", projected, free)}
+		return &UsageError{Err: o.backend.capacityRefusal(projected, free)}
 	}
 	return nil
 }
@@ -194,6 +202,13 @@ func (o *objectRun) provision(ctx context.Context) error {
 	obj := o.cfg.Tools.Object
 	if obj.Provisioning == "s3" {
 		return o.provisionS3(ctx)
+	}
+	class := o.backend.StorageClass
+	if class == "" {
+		class = obj.StorageClass
+	}
+	if err := k8s.StorageClassExists(ctx, o.client, class); err != nil {
+		return fmt.Errorf("backend %s: %w", o.backend.Name, err)
 	}
 	o.buckets = make([]bucketBind, obj.Buckets)
 	g, gctx := errgroup.WithContext(ctx)
@@ -207,9 +222,9 @@ func (o *objectRun) provision(ctx context.Context) error {
 			err := k8s.CreateOBC(gctx, o.client, k8s.OBCSpec{
 				Name:         name,
 				Namespace:    o.cfg.Cluster.Namespace,
-				StorageClass: obj.StorageClass,
+				StorageClass: class,
 				BucketName:   name,
-				BucketClass:  obj.BucketClass,
+				BucketClass:  o.backend.BucketClass,
 				Labels:       map[string]string{"app": o.cfg.Cluster.Prefix, "ordinal": fmt.Sprintf("%d", ordinal)},
 			})
 			if err != nil {
@@ -247,7 +262,7 @@ func (o *objectRun) provisionS3(ctx context.Context) error {
 	}
 	endpoint := obj.Endpoint
 	if endpoint == "" {
-		endpoint = objstore.DefaultEndpoint(obj.NooBaaNamespace)
+		endpoint = o.backend.FallbackEndpoint
 	}
 	o.buckets = make([]bucketBind, obj.Buckets)
 	for ordinal := 0; ordinal < obj.Buckets; ordinal++ {
@@ -308,7 +323,7 @@ func (o *objectRun) binding(ordinal int, obcName string, bind k8s.BucketBinding)
 		endpoint = bind.Endpoint
 	}
 	if endpoint == "" {
-		endpoint = objstore.DefaultEndpoint(obj.NooBaaNamespace)
+		endpoint = o.backend.FallbackEndpoint
 	}
 	region := bind.Region
 	if region == "" {
@@ -711,7 +726,7 @@ func (o *objectRun) record(pod, phase string, res report.ObjectResult, status st
 		Pod:          pod,
 		Job:          phase,
 		Category:     "object-" + phase,
-		Storage:      "noobaa",
+		Storage:      o.backend.ReportStorage,
 		VolumeMode:   "Object",
 		Status:       status,
 		ExitCode:     exit,

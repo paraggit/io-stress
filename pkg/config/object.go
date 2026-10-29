@@ -12,6 +12,14 @@ import (
 // DefaultObjectImage is the worker image used when --object-image is not set.
 const DefaultObjectImage = "ghcr.io/paraggit/odf-io-stress:latest"
 
+// DefaultNooBaaStorageClass is the published --object-storage-class default.
+const DefaultNooBaaStorageClass = "openshift-storage.noobaa.io"
+
+const (
+	BackendNooBaa = "noobaa"
+	BackendRGW    = "rgw"
+)
+
 // ObjectPhases is the canonical phase order. A subset in config or flags is
 // filtered back into this order.
 var ObjectPhases = []string{"create", "write", "read", "verify", "list", "copy", "delete", "teardown"}
@@ -25,6 +33,8 @@ type Object struct {
 	Force           bool   `yaml:"force,omitempty" json:"force,omitempty"`
 	Profile         string `yaml:"profile" json:"profile"`
 	Image           string `yaml:"image" json:"image"`
+	Backend         string `yaml:"backend,omitempty" json:"backend,omitempty"`
+	ODFNamespace    string `yaml:"odf_namespace,omitempty" json:"odf_namespace,omitempty"`
 	NooBaaNamespace string `yaml:"noobaa_namespace" json:"noobaa_namespace"`
 	Provisioning    string `yaml:"provisioning" json:"provisioning"`
 	StorageClass    string `yaml:"storage_class" json:"storage_class"`
@@ -138,7 +148,25 @@ func (o Object) HasPhase(name string) bool {
 	return false
 }
 
+// NormalizeObjectBackend fills backend defaults and copies the deprecated
+// noobaa_namespace alias into ODFNamespace when the new field is empty.
+func NormalizeObjectBackend(obj *Object) {
+	if obj == nil {
+		return
+	}
+	if strings.TrimSpace(obj.ODFNamespace) == "" {
+		obj.ODFNamespace = obj.NooBaaNamespace
+	}
+	if strings.TrimSpace(obj.Backend) == "" {
+		obj.Backend = BackendNooBaa
+	}
+	if obj.Backend == BackendRGW && obj.StorageClass == DefaultNooBaaStorageClass {
+		obj.StorageClass = ""
+	}
+}
+
 func validateObject(cfg *Config) error {
+	NormalizeObjectBackend(&cfg.Tools.Object)
 	o := cfg.Tools.Object
 	if o.Resume {
 		if !o.Only {
@@ -150,6 +178,14 @@ func validateObject(cfg *Config) error {
 	}
 	if !o.Enabled {
 		return nil
+	}
+	switch o.Backend {
+	case BackendNooBaa, BackendRGW:
+	default:
+		return fmt.Errorf("object backend must be noobaa or rgw, got %q", o.Backend)
+	}
+	if o.Backend == BackendRGW && o.Provisioning == "s3" {
+		return fmt.Errorf("object provisioning s3 is not supported for backend rgw; use OBC provisioning")
 	}
 	if strings.TrimSpace(o.Image) == "" {
 		return fmt.Errorf("object image must not be empty when the object workload is enabled")
@@ -207,11 +243,16 @@ func validateObject(cfg *Config) error {
 	default:
 		return fmt.Errorf("object key_layout must be hashed, flat, or deep, got %q", o.KeyLayout)
 	}
-	if o.Provisioning == "obc" && strings.TrimSpace(o.StorageClass) == "" {
+	if o.Provisioning == "obc" && strings.TrimSpace(o.StorageClass) == "" && o.Backend != BackendRGW {
 		return fmt.Errorf("object storage_class must not be empty when provisioning is obc")
 	}
-	if strings.TrimSpace(o.NooBaaNamespace) == "" {
-		return fmt.Errorf("object noobaa_namespace must not be empty")
+	aliasNS := strings.TrimSpace(o.NooBaaNamespace)
+	odfNS := strings.TrimSpace(o.ODFNamespace)
+	if aliasNS != "" && odfNS != "" && aliasNS != odfNS {
+		return fmt.Errorf("object odf_namespace %q conflicts with noobaa_namespace %q", odfNS, aliasNS)
+	}
+	if odfNS == "" {
+		return fmt.Errorf("object odf_namespace must not be empty (noobaa_namespace is a deprecated alias)")
 	}
 	if !validKeyPrefix(o.KeyPrefix) {
 		return fmt.Errorf("object key_prefix %q must be a lowercase DNS label", o.KeyPrefix)

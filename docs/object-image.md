@@ -6,7 +6,7 @@ The object workload does not run S3 calls on your laptop. Each phase runs in a p
 /usr/local/bin/odf-io-stress s3-worker --spec /etc/objstress/spec.json
 ```
 
-The default image is `ghcr.io/paraggit/odf-io-stress:latest`. Build your own when that tag is missing, private, or older than the binary you are running. Pass the result with `--object-image`.
+The default image is `ghcr.io/paraggit/odf-io-stress:latest`. Build your own when that tag is missing, private, or older than the binary you are running. Pass the result with `--object-image`. The same image serves NooBaa and RGW object runs; only the cluster bucket endpoint and credentials differ.
 
 The FIO image (`--image`, default `quay.io/ocsci/nginx:fio`) is a different container. It does not run the object workload.
 

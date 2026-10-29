@@ -123,7 +123,9 @@ func execute(ctx context.Context, cfg *config.Config, client *k8s.Client, base f
 	}
 
 	if cfg.Tools.Object.Enabled {
-		if err := runObject(ctx, cfg, client, collector); err != nil {
+		err := runObject(ctx, cfg, client, collector)
+		opts = refreshRunOptions(opts, cfg)
+		if err != nil {
 			return collector.Results(), err, opts
 		}
 	}

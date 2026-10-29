@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
+	"github.com/red-hat-storage/odf-io-stress/pkg/k8s"
 	"github.com/red-hat-storage/odf-io-stress/pkg/worker"
 	"github.com/red-hat-storage/odf-io-stress/pkg/workload"
 	"github.com/spf13/cobra"
@@ -83,6 +84,9 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			if cfg.Cluster.DryRun {
+				if err := resolveDryRunObject(cfg); err != nil {
+					return err
+				}
 				return workload.DryRun(cfg)
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -131,6 +135,7 @@ func newRootCmd() *cobra.Command {
 	obj := def.Tools.Object
 	f.Bool("object", obj.Enabled, "Enable the NooBaa object workload")
 	f.Bool("object-only", obj.Only, "Run only the object workload (no PVCs or FIO)")
+	f.String("object-backend", config.BackendNooBaa, "Object backend: noobaa or rgw")
 	f.String("object-profile", obj.Profile, "Object profile: smoke, standard, scale, or large")
 	f.String("object-image", obj.Image, "Custom object worker image (overrides the profile and config file)")
 	f.Int("object-buckets", obj.Buckets, "Number of object buckets")
@@ -143,6 +148,7 @@ func newRootCmd() *cobra.Command {
 	f.String("object-phases", strings.Join(obj.Phases, ","), "Comma-separated object phases")
 	f.String("object-delete-mode", obj.DeleteMode, "Object delete mode: recursive, obc-only, or both")
 	f.String("object-storage-class", obj.StorageClass, "ObjectBucketClaim StorageClass")
+	f.Duration("object-obc-delete-timeout", obj.OBCDeleteTimeout.Duration(), "Wait for ObjectBucketClaim deletion")
 	f.String("object-provisioning", obj.Provisioning, "Bucket provisioning: obc or s3")
 	f.String("object-seed", "", "Hex seed; reproduces a prior object run")
 	f.Bool("object-resume", false, "Reuse buckets from --object-seed; requires --object-only and does not delete the namespace")
@@ -200,6 +206,25 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(runCmd, genCmd, optCmd, workerCmd)
 	return rootCmd
+}
+
+// resolveDryRunObject discovers an RGW storage class or endpoint before
+// manifests are printed. A NooBaa dry-run does not open a client.
+func resolveDryRunObject(cfg *config.Config) error {
+	if cfg == nil || !cfg.Tools.Object.Enabled || cfg.Tools.Object.Backend != config.BackendRGW {
+		return nil
+	}
+	obj := cfg.Tools.Object
+	var client *k8s.Client
+	if strings.TrimSpace(obj.StorageClass) == "" || strings.TrimSpace(obj.Endpoint) == "" {
+		c, err := k8s.NewClient(cfg.Cluster.Kubeconfig)
+		if err != nil {
+			return err
+		}
+		client = c
+	}
+	_, err := workload.ResolveObjectBackend(context.Background(), client, cfg)
+	return err
 }
 
 // exitCode maps a run error to a process status an agent can branch on:

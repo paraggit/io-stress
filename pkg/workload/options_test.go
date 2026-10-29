@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
 	"github.com/red-hat-storage/odf-io-stress/pkg/report"
@@ -121,5 +122,42 @@ func TestFinalize_RecordsOptions(t *testing.T) {
 	}
 	if summary.Options == nil || summary.Options.Namespace != "odf-io-stress" || summary.Options.Runtime != 30 || !summary.Options.SkipLifecycle {
 		t.Fatalf("options = %+v", summary.Options)
+	}
+}
+
+func TestRecordRGWStorage(t *testing.T) {
+	cfg := config.NewDefault()
+	collector := report.NewCollector()
+	o := &objectRun{
+		cfg:       cfg,
+		collector: collector,
+		backend:   objectBackend{Name: "rgw", ReportStorage: "rgw"},
+	}
+	o.record("pod", "write", report.ObjectResult{Bucket: "b", Phase: "write"}, "pass", time.Second, "")
+	got := collector.Results()
+	if len(got) != 1 {
+		t.Fatalf("results = %d", len(got))
+	}
+	if got[0].Storage != "rgw" {
+		t.Fatalf("storage = %q, want rgw", got[0].Storage)
+	}
+}
+
+func TestRefreshRunOptionsAfterDiscovery(t *testing.T) {
+	cfg := enabledObjectConfig(t, config.BackendRGW)
+	before := finalizeOpts{hasOptions: true, options: usedRunOptions(cfg, "cfg.yaml", "smoke")}
+	if before.options.ObjectBackend != "rgw" {
+		t.Fatalf("backend = %q", before.options.ObjectBackend)
+	}
+	if before.options.ObjectStorageClass != "" {
+		t.Fatalf("class = %q, want empty before discovery", before.options.ObjectStorageClass)
+	}
+	cfg.Tools.Object.StorageClass = testRGWClass
+	after := refreshRunOptions(before, cfg)
+	if after.options.Config != "cfg.yaml" || after.options.Recipe != "smoke" {
+		t.Fatalf("kept config/recipe = %q %q", after.options.Config, after.options.Recipe)
+	}
+	if after.options.ObjectBackend != "rgw" || after.options.ObjectStorageClass != testRGWClass {
+		t.Fatalf("options = %+v", after.options)
 	}
 }
