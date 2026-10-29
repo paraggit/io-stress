@@ -159,6 +159,9 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	get("object-only", func() {
 		cfg.Tools.Object.Only, err = fs.GetBool("object-only")
 	})
+	get("object-backend", func() {
+		cfg.Tools.Object.Backend, err = fs.GetString("object-backend")
+	})
 	get("object-image", func() {
 		cfg.Tools.Object.Image, err = fs.GetString("object-image")
 	})
@@ -207,6 +210,13 @@ func ApplyChangedFlags(fs *pflag.FlagSet, cfg *Config) error {
 	})
 	get("object-storage-class", func() {
 		cfg.Tools.Object.StorageClass, err = fs.GetString("object-storage-class")
+	})
+	get("object-obc-delete-timeout", func() {
+		var d time.Duration
+		d, err = fs.GetDuration("object-obc-delete-timeout")
+		if err == nil {
+			cfg.Tools.Object.OBCDeleteTimeout = Duration(d)
+		}
 	})
 	get("object-provisioning", func() {
 		cfg.Tools.Object.Provisioning, err = fs.GetString("object-provisioning")

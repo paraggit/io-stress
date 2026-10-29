@@ -55,6 +55,12 @@ func usedRunOptions(cfg *config.Config, configPath, recipe string) report.UsedOp
 		o := cfg.Tools.Object
 		opts.Object = true
 		opts.ObjectOnly = o.Only
+		backend := o.Backend
+		if strings.TrimSpace(backend) == "" {
+			backend = config.BackendNooBaa
+		}
+		opts.ObjectBackend = backend
+		opts.ObjectOBCDeleteTimeout = o.OBCDeleteTimeout.Duration().String()
 		opts.ObjectProfile = o.Profile
 		opts.ObjectImage = o.Image
 		opts.ObjectBuckets = o.Buckets

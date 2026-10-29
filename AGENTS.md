@@ -28,7 +28,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 - --format is the FIO output format: json or normal.
 - tools.vdbench and tools.smallfiles in a config file are ignored.
 - generate-config writes a sample config. -o - writes it to stdout. --force overwrites an existing file. It does not run a workload.
-- The object workload is opt-in via --object. --object-only sets RBD and CephFS PVC counts to 0, skips FIO stress and lifecycle, and is the only case where zero PVCs is valid. --object-resume requires --object-only and --object-seed and does not delete the namespace. --object-profile (smoke, standard, scale, large) applies before other explicit object flags. delete_mode both empties even-ordinal buckets and deletes odd-ordinal OBCs while they are still full; a single bucket uses obc-only. S3 calls run only in worker pods. A capability probe answer of NotImplemented, MethodNotAllowed, or HTTP 501 skips that capability instead of failing the run.
+- The object workload is opt-in via --object. --object-only sets RBD and CephFS PVC counts to 0, skips FIO stress and lifecycle, and is the only case where zero PVCs is valid. --object-resume requires --object-only and --object-seed and does not delete the namespace. --object-profile (smoke, standard, scale, large) applies before other explicit object flags. delete_mode both empties even-ordinal buckets and deletes odd-ordinal OBCs while they are still full; a single bucket uses obc-only. S3 calls run only in worker pods. A capability probe answer of NotImplemented, MethodNotAllowed, or HTTP 501 skips that capability instead of failing the run. --object-backend is noobaa or rgw (default noobaa); rgw discovers the StorageClass whose provisioner is openshift-storage.ceph.rook.io/bucket unless --object-storage-class is set; --object-provisioning=s3 is rejected for rgw; --object-obc-delete-timeout defaults to 10m.
 
 ## run options
 
@@ -71,6 +71,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--app-type` | empty | Comma-separated profiles: `nfs`, `vm`, `database`, `messaging`, `ai` |
 | `--object` | `false` | Enable the NooBaa object workload |
 | `--object-only` | `false` | Run only the object workload (no PVCs or FIO) |
+| `--object-backend` | `noobaa` | Object backend: `noobaa` or `rgw` |
 | `--object-profile` | `standard` | Object profile: `smoke`, `standard`, `scale`, or `large` |
 | `--object-image` | `ghcr.io/paraggit/odf-io-stress:latest` | Custom object worker image. Overrides the profile and the config file |
 | `--object-buckets` | `10` | Number of object buckets |
@@ -83,6 +84,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--object-phases` | `create,write,read,verify,list,copy,delete,teardown` | Comma-separated object phases |
 | `--object-delete-mode` | `both` | Object delete mode: `recursive`, `obc-only`, or `both` |
 | `--object-storage-class` | `openshift-storage.noobaa.io` | ObjectBucketClaim StorageClass |
+| `--object-obc-delete-timeout` | `10m` | Wait for ObjectBucketClaim deletion |
 | `--object-provisioning` | `obc` | Bucket provisioning: `obc` or `s3` |
 | `--object-seed` | empty | Hex seed; reproduces a prior object run |
 | `--object-resume` | `false` | Reuse buckets from `--object-seed`; requires `--object-only` and does not delete the namespace |

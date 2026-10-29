@@ -59,6 +59,64 @@ tools:
 	}
 }
 
+func registerObjectApplyFlags(fs *pflag.FlagSet, cfg *Config) {
+	fs.String("object-profile", cfg.Tools.Object.Profile, "")
+	fs.String("object-backend", BackendNooBaa, "")
+	fs.String("object-storage-class", cfg.Tools.Object.StorageClass, "")
+	fs.Bool("object", false, "")
+}
+
+func TestObjectBackendFlagOverridesProfile(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	cfg := NewDefault()
+	registerObjectApplyFlags(fs, cfg)
+	if err := fs.Parse([]string{"--object-profile", "scale", "--object-backend", "rgw"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Object.Backend != BackendRGW {
+		t.Fatalf("backend = %q, want %q", cfg.Tools.Object.Backend, BackendRGW)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Object.StorageClass != "" {
+		t.Fatalf("storage class = %q, want empty after Validate", cfg.Tools.Object.StorageClass)
+	}
+}
+
+func TestObjectStorageClassFlagWinsOnRGW(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	cfg := NewDefault()
+	registerObjectApplyFlags(fs, cfg)
+	if err := fs.Parse([]string{"--object-backend", "rgw", "--object-storage-class", "my-class"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyChangedFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Object.StorageClass != "my-class" {
+		t.Fatalf("storage class = %q, want my-class", cfg.Tools.Object.StorageClass)
+	}
+}
+
+func TestPublishedStorageClassDefault(t *testing.T) {
+	def := NewDefault()
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("object-backend", BackendNooBaa, "Object backend: noobaa or rgw")
+	fs.String("object-storage-class", def.Tools.Object.StorageClass, "ObjectBucketClaim StorageClass")
+	backend := fs.Lookup("object-backend")
+	if backend == nil || backend.DefValue != BackendNooBaa {
+		t.Fatalf("object-backend default = %q, want %q", backend.DefValue, BackendNooBaa)
+	}
+	sc := fs.Lookup("object-storage-class")
+	if sc == nil || sc.DefValue != DefaultNooBaaStorageClass {
+		t.Fatalf("object-storage-class default = %q, want %q", sc.DefValue, DefaultNooBaaStorageClass)
+	}
+}
+
 func TestApplyChangedFlagsObjectProfileThenFlag(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	fs.String("object-profile", "standard", "")

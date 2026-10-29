@@ -131,6 +131,7 @@ func newRootCmd() *cobra.Command {
 	obj := def.Tools.Object
 	f.Bool("object", obj.Enabled, "Enable the NooBaa object workload")
 	f.Bool("object-only", obj.Only, "Run only the object workload (no PVCs or FIO)")
+	f.String("object-backend", config.BackendNooBaa, "Object backend: noobaa or rgw")
 	f.String("object-profile", obj.Profile, "Object profile: smoke, standard, scale, or large")
 	f.String("object-image", obj.Image, "Custom object worker image (overrides the profile and config file)")
 	f.Int("object-buckets", obj.Buckets, "Number of object buckets")
@@ -143,6 +144,7 @@ func newRootCmd() *cobra.Command {
 	f.String("object-phases", strings.Join(obj.Phases, ","), "Comma-separated object phases")
 	f.String("object-delete-mode", obj.DeleteMode, "Object delete mode: recursive, obc-only, or both")
 	f.String("object-storage-class", obj.StorageClass, "ObjectBucketClaim StorageClass")
+	f.Duration("object-obc-delete-timeout", obj.OBCDeleteTimeout.Duration(), "Wait for ObjectBucketClaim deletion")
 	f.String("object-provisioning", obj.Provisioning, "Bucket provisioning: obc or s3")
 	f.String("object-seed", "", "Hex seed; reproduces a prior object run")
 	f.Bool("object-resume", false, "Reuse buckets from --object-seed; requires --object-only and does not delete the namespace")

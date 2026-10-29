@@ -34,25 +34,27 @@ func TestSummaryJSONFIOKeepsEmptyLifecycle(t *testing.T) {
 
 func TestUsedOptionsObjectOnlyJSONOmitsFIO(t *testing.T) {
 	o := UsedOptions{
-		Kubeconfig:    "",
-		RBDNumPVC:     0,
-		CephFSNumPVC:  0,
-		Namespace:     "odf-io-stress",
-		Image:         "quay.io/ocsci/nginx:fio",
-		Runtime:       60,
-		BlockSize:     "512",
-		PVCSize:       "10Gi",
-		Prefix:        "odf-io",
-		Timeout:       "5m0s",
-		CloneTimeout:  "20m0s",
-		Format:        "json",
-		SkipFIOStress: true,
-		SkipLifecycle: true,
-		Object:        true,
-		ObjectOnly:    true,
-		ObjectProfile: "smoke",
-		ObjectImage:   "ghcr.io/paraggit/odf-io-stress:latest",
-		ObjectBuckets: 2,
+		Kubeconfig:             "",
+		RBDNumPVC:              0,
+		CephFSNumPVC:           0,
+		Namespace:              "odf-io-stress",
+		Image:                  "quay.io/ocsci/nginx:fio",
+		Runtime:                60,
+		BlockSize:              "512",
+		PVCSize:                "10Gi",
+		Prefix:                 "odf-io",
+		Timeout:                "5m0s",
+		CloneTimeout:           "20m0s",
+		Format:                 "json",
+		SkipFIOStress:          true,
+		SkipLifecycle:          true,
+		Object:                 true,
+		ObjectOnly:             true,
+		ObjectProfile:          "smoke",
+		ObjectImage:            "ghcr.io/paraggit/odf-io-stress:latest",
+		ObjectBuckets:          2,
+		ObjectBackend:          "rgw",
+		ObjectOBCDeleteTimeout: "10m0s",
 	}
 	b, err := json.Marshal(o)
 	if err != nil {
@@ -72,6 +74,7 @@ func TestUsedOptionsObjectOnlyJSONOmitsFIO(t *testing.T) {
 	for _, good := range []string{
 		"kubeconfig", "namespace", "prefix", "timeout", "no-cleanup", "dry-run",
 		"max-parallel", "max-parallel-provision", "object-only", "object-image", "object-profile",
+		"object-backend", "object-obc-delete-timeout",
 	} {
 		if !bytes.Contains(b, []byte(`"`+good+`"`)) {
 			t.Errorf("object-only options missing %s: %s", good, b)
