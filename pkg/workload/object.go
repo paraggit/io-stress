@@ -186,40 +186,16 @@ func (o *objectRun) preflight(ctx context.Context) error {
 		return err
 	}
 	ns := obj.ODFNamespace
-	free, found, readErr := o.readFreeBytes(ctx, ns)
+	free, found, readErr := o.backend.freeBytes(ctx, o.client, ns)
 	if readErr != nil || !found {
-		log.Printf("WARNING: could not read %s free capacity in %s (%v); continuing", o.capacitySource(), ns, readErr)
+		log.Printf("WARNING: could not read %s free capacity in %s (%v); continuing", o.backend.capacitySource(), ns, readErr)
 		return nil
 	}
-	if o.backend.Name == config.BackendRGW {
-		// CephFreeBytes does not return the CephCluster name, and pkg/k8s does
-		// not log. Name the namespace here. Do not list CephClusters again
-		// only to print an object name.
-		log.Printf("capacity preflight: namespace %s: projected logical %d bytes versus raw bytesAvailable %d bytes (logical projected bytes versus raw bytesAvailable; optimistic under replication)", ns, projected, free)
-		if projected > free {
-			return &UsageError{Err: fmt.Errorf("projected logical %d bytes exceed raw bytesAvailable %d bytes; pass --object-force to continue", projected, free)}
-		}
-		return nil
-	}
-	log.Printf("capacity preflight: projected %d bytes, free %d bytes", projected, free)
+	log.Print(o.backend.capacityLog(ns, projected, free))
 	if projected > free {
-		return &UsageError{Err: fmt.Errorf("projected %d bytes exceeds NooBaa free capacity %d bytes; pass --object-force to continue", projected, free)}
+		return &UsageError{Err: o.backend.capacityRefusal(projected, free)}
 	}
 	return nil
-}
-
-func (o *objectRun) readFreeBytes(ctx context.Context, namespace string) (int64, bool, error) {
-	if o.backend.Name == config.BackendRGW {
-		return k8s.CephFreeBytes(ctx, o.client, namespace)
-	}
-	return k8s.NooBaaFreeBytes(ctx, o.client, namespace)
-}
-
-func (o *objectRun) capacitySource() string {
-	if o.backend.Name == config.BackendRGW {
-		return "Ceph"
-	}
-	return "NooBaa"
 }
 
 func (o *objectRun) provision(ctx context.Context) error {

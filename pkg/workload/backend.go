@@ -81,3 +81,38 @@ func resolveRGW(ctx context.Context, c *k8s.Client, cfg *config.Config) (objectB
 		ReportStorage:    config.BackendRGW,
 	}, nil
 }
+
+// freeBytes reads capacity for this backend. pkg/k8s does not log.
+func (b objectBackend) freeBytes(ctx context.Context, c *k8s.Client, namespace string) (int64, bool, error) {
+	if b.Name == config.BackendRGW {
+		return k8s.CephFreeBytes(ctx, c, namespace)
+	}
+	return k8s.NooBaaFreeBytes(ctx, c, namespace)
+}
+
+// capacitySource is the warning word when free capacity cannot be read.
+func (b objectBackend) capacitySource() string {
+	if b.Name == config.BackendRGW {
+		return "Ceph"
+	}
+	return "NooBaa"
+}
+
+// capacityLog is the found-capacity line. CephFreeBytes does not return the
+// CephCluster name. The RGW line names the namespace and compares logical
+// projected bytes with raw bytesAvailable. Do not list CephClusters again
+// only to print an object name.
+func (b objectBackend) capacityLog(namespace string, projected, free int64) string {
+	if b.Name == config.BackendRGW {
+		return fmt.Sprintf("capacity preflight: namespace %s: projected logical %d bytes versus raw bytesAvailable %d bytes (logical projected bytes versus raw bytesAvailable; optimistic under replication)", namespace, projected, free)
+	}
+	return fmt.Sprintf("capacity preflight: projected %d bytes, free %d bytes", projected, free)
+}
+
+// capacityRefusal is the error when projected bytes exceed free capacity.
+func (b objectBackend) capacityRefusal(projected, free int64) error {
+	if b.Name == config.BackendRGW {
+		return fmt.Errorf("projected logical %d bytes exceed raw bytesAvailable %d bytes; pass --object-force to continue", projected, free)
+	}
+	return fmt.Errorf("projected %d bytes exceeds NooBaa free capacity %d bytes; pass --object-force to continue", projected, free)
+}
