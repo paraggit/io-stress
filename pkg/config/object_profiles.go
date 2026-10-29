@@ -15,7 +15,7 @@ func standardObject() Object {
 		Image:                   DefaultObjectImage,
 		NooBaaNamespace:         "openshift-storage",
 		Provisioning:            "obc",
-		StorageClass:            "openshift-storage.noobaa.io",
+		StorageClass:            DefaultNooBaaStorageClass,
 		Region:                  "us-east-1",
 		Buckets:                 10,
 		BucketCreateConcurrency: 10,
@@ -132,13 +132,14 @@ func ApplyObjectProfile(obj *Object, name string) error {
 	if err != nil {
 		return err
 	}
-	enabled, only, resume, force, seed := obj.Enabled, obj.Only, obj.Resume, obj.Force, obj.Seed
+	enabled, only, resume, force, seed, backend := obj.Enabled, obj.Only, obj.Resume, obj.Force, obj.Seed, obj.Backend
 	*obj = next
 	obj.Enabled = enabled
 	obj.Only = only
 	obj.Resume = resume
 	obj.Force = force
 	obj.Seed = seed
+	obj.Backend = backend
 	obj.Profile = name
 	return nil
 }
