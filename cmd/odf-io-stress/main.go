@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -204,7 +205,29 @@ func newRootCmd() *cobra.Command {
 	}
 	workerCmd.Flags().StringVar(&specPath, "spec", worker.SpecPath, "Path to the job spec JSON")
 
-	rootCmd.AddCommand(runCmd, genCmd, optCmd, workerCmd)
+	exampleCmd := &cobra.Command{
+		Use:   "example",
+		Short: "Print run examples",
+		Long:  "Print run examples. Does not touch the cluster.",
+	}
+	workloadCmd := &cobra.Command{
+		Use:          "workload {fio|object}",
+		Short:        "Print examples for the fio or object workload",
+		SilenceUsage: true,
+		Args:         cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		ValidArgs:    []string{"fio", "object"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			text, ok := workloadExamples[args[0]]
+			if !ok {
+				return fmt.Errorf("unknown workload %q", args[0])
+			}
+			_, err := fmt.Fprint(cmd.OutOrStdout(), text)
+			return err
+		},
+	}
+	exampleCmd.AddCommand(workloadCmd)
+
+	rootCmd.AddCommand(runCmd, genCmd, optCmd, workerCmd, exampleCmd)
 	return rootCmd
 }
 
