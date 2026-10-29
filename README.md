@@ -44,9 +44,11 @@ make release-binaries
 ```bash
 ./odf-io-stress run [flags]
 ./odf-io-stress options
+./odf-io-stress example workload fio
+./odf-io-stress example workload object
 ```
 
-`options` prints every `run` and `generate-config` flag as JSON, including defaults and the flag interactions an agent needs. `AGENTS.md` lists the same options. Run without `--config` uses built-in defaults. Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
+`options` prints every `run` and `generate-config` flag as JSON, including defaults and the flag interactions an agent needs. `AGENTS.md` lists the same options. `example workload` prints the run examples for `fio` or `object` and does not touch the cluster. Run without `--config` uses built-in defaults. Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
 
 ### Merge order
 
@@ -594,7 +596,7 @@ The `results/` directory is gitignored.
 ## Project layout
 
 ```
-cmd/odf-io-stress/   # CLI entrypoint (run, options, generate-config, hidden s3-worker)
+cmd/odf-io-stress/   # CLI entrypoint (run, options, example, generate-config, hidden s3-worker)
 pkg/config/          # Config types, load/merge, flags, defaults, object profiles
 pkg/fio/             # FIO job definitions (pattern → job)
 pkg/objstore/        # Deterministic keys/payloads and the S3 client used by s3-worker
