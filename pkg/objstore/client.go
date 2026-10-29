@@ -6,8 +6,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -172,6 +174,17 @@ func retryable(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
 	switch apiCode(err) {
 	case "SlowDown", "ServiceUnavailable", "InternalError", "RequestTimeout", "RequestTimeTooSkewed",
 		"Throttling", "ThrottlingException", "ProvisionedThroughputExceededException":
@@ -201,11 +214,21 @@ func IsCapacity(err error) bool {
 // IsUnsupported reports a capability this NooBaa build does not implement.
 func IsUnsupported(err error) bool {
 	switch apiCode(err) {
-	case "NotImplemented", "MethodNotAllowed":
+	case "NotImplemented", "MethodNotAllowed", "AccessDenied":
 		return true
 	}
 	switch httpStatus(err) {
-	case 501, 405:
+	case 501, 405, 403:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsCopyLimit reports an object size or request shape RGW rejects for CopyObject.
+func IsCopyLimit(err error) bool {
+	switch apiCode(err) {
+	case "EntityTooLarge", "InvalidRequest":
 		return true
 	default:
 		return false
