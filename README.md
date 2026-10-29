@@ -108,8 +108,11 @@ make release-binaries
 ./odf-io-stress run --app-type vm,database
 ./odf-io-stress run --app-type nfs,vm,database --runtime 120
 
-# NooBaa / MCG only (no PVCs). See "Object workload" below.
+# Object workload only (no PVCs). See "Object workload" below.
 ./odf-io-stress run --object-only --object-profile smoke --results-dir results/object-smoke
+
+# Same phases against Ceph RGW (OBC provisioning)
+./odf-io-stress run --object-only --object-backend rgw --object-profile smoke --results-dir results/object-rgw-smoke
 ```
 
 ### Generate config
@@ -223,8 +226,9 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--snapshot-class` | _(auto)_ | Override VolumeSnapshotClass |
 | `--sustain-runtime` | `runtime*3` | Sustain workload duration (seconds) |
 | `--app-type` | _(none)_ | Comma-separated app profiles from `tools.fio.app_suites` (built-ins: `nfs`, `vm`, `database`, `messaging`, `ai`) |
-| `--object` | `false` | Enable the NooBaa object workload alongside FIO |
+| `--object` | `false` | Enable the object workload alongside FIO |
 | `--object-only` | `false` | Run only the object workload. Sets RBD and CephFS PVC counts to 0 and skips FIO |
+| `--object-backend` | `noobaa` | Object backend: `noobaa` or `rgw` |
 | `--object-profile` | `standard` | `smoke`, `standard`, `scale`, or `large`. Applied before the other object flags |
 | `--object-image` | `ghcr.io/paraggit/odf-io-stress:latest` | Custom worker image. Overrides the profile and the config file. The image must contain this binary |
 | `--object-buckets` | `10` | Number of buckets |
@@ -237,11 +241,12 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--object-phases` | all eight | Comma-separated subset. Order is always create, write, read, verify, list, copy, delete, teardown |
 | `--object-delete-mode` | `both` | `recursive`, `obc-only`, or `both` |
 | `--object-storage-class` | `openshift-storage.noobaa.io` | ObjectBucketClaim StorageClass |
-| `--object-provisioning` | `obc` | `obc` or `s3` (direct `CreateBucket` with the `noobaa-admin` secret) |
+| `--object-obc-delete-timeout` | `10m` | Wait for ObjectBucketClaim deletion |
+| `--object-provisioning` | `obc` | `obc` or `s3` (direct `CreateBucket` with the `noobaa-admin` secret; rejected with `--object-backend=rgw`) |
 | `--object-seed` | random | 64 hex characters. Reproduces bucket names and object bytes |
 | `--object-resume` | `false` | Reuse buckets from `--object-seed`. Requires `--object-only` and does not delete the namespace |
 | `--object-insecure-tls` | `false` | Skip S3 TLS verification. Logged on the control plane and in the worker |
-| `--object-force` | `false` | Start the write phase even when the NooBaa capacity preflight fails |
+| `--object-force` | `false` | Start the write phase even when the capacity preflight fails |
 
 `generate-config` flags:
 
@@ -252,7 +257,9 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 
 ## Object workload
 
-`--object` runs a NooBaa / MCG S3 workload in the same namespace as FIO. `--object-only` runs it alone: PVC counts become 0 and FIO is skipped. Without either flag, a run is unchanged.
+`--object` runs an S3 object workload in the same namespace as FIO. `--object-only` runs it alone: PVC counts become 0 and FIO is skipped. Without either flag, a run is unchanged. `--object-backend` selects NooBaa / MCG (`noobaa`, the default) or Ceph RGW (`rgw`). The same phase engine, worker image, and profiles apply to both.
+
+With `--object-backend=rgw`, the run reuses the object workload through ObjectBucketClaims: it discovers the StorageClass whose provisioner is `openshift-storage.ceph.rook.io/bucket` unless you set `--object-storage-class`, and validation rejects `--object-provisioning=s3` (OBC is the supported path for RGW). Scale and large profiles are unchanged.
 
 The control plane uses only the Kubernetes API. Worker pods run this binary's `s3-worker` command and make every S3 call, including bucket creation when `--object-provisioning s3`. Build an image with `make image` and pass it on the command line with `--object-image`. The default is `ghcr.io/paraggit/odf-io-stress:latest`. [docs/object-image.md](docs/object-image.md) is the build and push walkthrough.
 
@@ -380,7 +387,9 @@ tools:
   --object-image quay.io/my-org/odf-io-stress:dev
 ```
 
-Before `write`, the tool compares the projected bytes with free capacity on the NooBaa CR. If the projection is larger, the run stops. `--object-force` continues. If free capacity cannot be read, the run continues and logs a warning.
+Before `write`, the tool runs a capacity preflight. On NooBaa it compares projected bytes with free capacity on the NooBaa CR. On RGW it compares projected logical bytes with raw `bytesAvailable` from the Ceph cluster (optimistic under replication). If the projection is larger, the run stops. `--object-force` continues. If free capacity cannot be read, the run continues and logs a warning.
+
+Transport errors, including a short HTTP read failure, are retried in the worker (`max_retries` defaults to 5, about six seconds of backoff across the attempts). A disruption longer than that retry budget still fails the phase on the first exhausted operation. The summary records operation counts, not a time-series latency chart.
 
 ## App-type workload profiles
 
@@ -448,7 +457,7 @@ Built-in profiles remain available unless you override the same key. Pattern `pa
 
 | Gap | Why FIO-only is insufficient |
 |-----|------------------------------|
-| RGW / Ceph Object Gateway | MCG/NooBaa is the object workload; RGW is not wired up |
+| RGW / Ceph Object Gateway | `--object-backend=rgw` reuses the object workload via OBC, discovers the bucket provisioner `openshift-storage.ceph.rook.io/bucket` unless `--object-storage-class` is set, and rejects `--object-provisioning=s3`; built-in disruption injection and time-series latency are still out of scope |
 | Real NFS-Ganesha / CSI NFS | Needs NFS mount + metadata tools (e.g. smallfiles) |
 | Real CNV VMs | Needs KubeVirt guests, not only block FIO |
 | Real databases / brokers | Needs pgbench/sysbench/kafka tools |
