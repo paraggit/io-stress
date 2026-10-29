@@ -81,3 +81,13 @@ func usedRunOptions(cfg *config.Config, configPath, recipe string) report.UsedOp
 	}
 	return opts
 }
+
+// refreshRunOptions rebuilds summary options after ResolveObjectBackend writes
+// a discovered storage class back onto cfg. Config path and recipe are kept.
+func refreshRunOptions(opts finalizeOpts, cfg *config.Config) finalizeOpts {
+	if cfg == nil {
+		return opts
+	}
+	opts.options = usedRunOptions(cfg, opts.options.Config, opts.options.Recipe)
+	return opts
+}

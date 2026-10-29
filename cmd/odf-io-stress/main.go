@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/red-hat-storage/odf-io-stress/pkg/config"
+	"github.com/red-hat-storage/odf-io-stress/pkg/k8s"
 	"github.com/red-hat-storage/odf-io-stress/pkg/worker"
 	"github.com/red-hat-storage/odf-io-stress/pkg/workload"
 	"github.com/spf13/cobra"
@@ -83,6 +84,9 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			if cfg.Cluster.DryRun {
+				if err := resolveDryRunObject(cfg); err != nil {
+					return err
+				}
 				return workload.DryRun(cfg)
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -202,6 +206,25 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(runCmd, genCmd, optCmd, workerCmd)
 	return rootCmd
+}
+
+// resolveDryRunObject discovers an RGW storage class or endpoint before
+// manifests are printed. A NooBaa dry-run does not open a client.
+func resolveDryRunObject(cfg *config.Config) error {
+	if cfg == nil || !cfg.Tools.Object.Enabled || cfg.Tools.Object.Backend != config.BackendRGW {
+		return nil
+	}
+	obj := cfg.Tools.Object
+	var client *k8s.Client
+	if strings.TrimSpace(obj.StorageClass) == "" || strings.TrimSpace(obj.Endpoint) == "" {
+		c, err := k8s.NewClient(cfg.Cluster.Kubeconfig)
+		if err != nil {
+			return err
+		}
+		client = c
+	}
+	_, err := workload.ResolveObjectBackend(context.Background(), client, cfg)
+	return err
 }
 
 // exitCode maps a run error to a process status an agent can branch on:

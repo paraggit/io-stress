@@ -2,6 +2,7 @@ package workload
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"os"
 	"strings"
@@ -90,5 +91,37 @@ func TestDryRunObject(t *testing.T) {
 	}
 	if !strings.Contains(output, "s3-worker") || !strings.Contains(output, "restartPolicy: Never") {
 		t.Fatalf("worker pod missing:\n%s", output)
+	}
+}
+
+func TestDryRunRGWOmitsBucketClass(t *testing.T) {
+	cfg := enabledObjectConfig(t, config.BackendRGW)
+	cfg.Tools.Object.Only = true
+	cfg.Cluster.RBD.NumPVC = 0
+	cfg.Cluster.CephFS.NumPVC = 0
+	cfg.Tools.Object.Buckets = 1
+	cfg.Tools.Object.Seed = strings.Repeat("ab", 32)
+	cfg.Tools.Object.BucketClass = "noobaa-default-bucket-class"
+	if _, err := ResolveObjectBackend(context.Background(), rgwDiscoveryClient(t, testRGWClass), cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err := DryRun(cfg)
+	w.Close()
+	os.Stdout = old
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	stdout.ReadFrom(r)
+	output := stdout.String()
+	if !strings.Contains(output, testRGWClass) {
+		t.Fatalf("OBC YAML missing discovered class %s:\n%s", testRGWClass, output)
+	}
+	if strings.Contains(output, "additionalConfig") {
+		t.Fatalf("RGW OBC must not set additionalConfig:\n%s", output)
 	}
 }
