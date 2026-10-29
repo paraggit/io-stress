@@ -174,7 +174,7 @@ func retryable(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	if errors.Is(err, io.EOF) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
 	var netErr net.Error

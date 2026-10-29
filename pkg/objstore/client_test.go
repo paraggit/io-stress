@@ -3,6 +3,7 @@ package objstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"syscall"
@@ -18,7 +19,11 @@ func (timeoutNetErr) Temporary() bool { return false }
 func TestRetryableTransport(t *testing.T) {
 	refused := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
 	reset := &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}
-	for _, err := range []error{refused, reset, io.EOF, timeoutNetErr{}} {
+	for _, err := range []error{
+		refused, reset, io.EOF, io.ErrUnexpectedEOF,
+		fmt.Errorf("read: %w", io.ErrUnexpectedEOF),
+		timeoutNetErr{},
+	} {
 		if !retryable(err) {
 			t.Fatalf("retryable(%v) = false, want true", err)
 		}
