@@ -44,11 +44,12 @@ make release-binaries
 ```bash
 ./odf-io-stress run [flags]
 ./odf-io-stress options
+./odf-io-stress example workload
 ./odf-io-stress example workload fio
 ./odf-io-stress example workload object
 ```
 
-`options` prints every `run` and `generate-config` flag as JSON, including defaults and the flag interactions an agent needs. `AGENTS.md` lists the same options. `example workload` prints the run examples for `fio` or `object` and does not touch the cluster. Run without `--config` uses built-in defaults. Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
+`options` prints every `run` and `generate-config` flag as JSON, including defaults and the flag interactions an agent needs. `AGENTS.md` lists the same options. `example workload` prints the FIO and object run examples and does not touch the cluster. `example workload fio` and `example workload object` print one catalog. Run without `--config` uses built-in defaults. Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
 
 ### Merge order
 

@@ -8,7 +8,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 
 - `odf-io-stress run` runs the suite. Stdout is one JSON summary. Logs go to stderr.
 - `odf-io-stress options` prints every option. It does not touch the cluster.
-- `odf-io-stress example workload fio` prints FIO run examples. `odf-io-stress example workload object` prints object run examples. Neither touches the cluster.
+- `odf-io-stress example workload` prints FIO and object run examples. `example workload fio` and `example workload object` print one catalog. `example fio` and `example object` do the same. None of these touch the cluster. An unknown workload name exits 2 with a human message, not an agent JSON summary.
 - `odf-io-stress generate-config` writes a sample config. It does not run a workload.
 - `odf-io-stress --help` and `odf-io-stress run --help` print human help.
 
