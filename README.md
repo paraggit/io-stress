@@ -1,6 +1,6 @@
 # odf-io-stress
 
-ODF IO stress testing tool for RBD, CephFS, and (opt-in) NooBaa / Multicloud Object Gateway. It creates PVC/pod pairs on an OpenShift Data Foundation cluster, runs FIO workloads, exercises volume lifecycle operations (expand, clone, snapshot/restore), and verifies data integrity. `--object` adds an S3 object workload that runs inside the cluster.
+ODF IO stress testing tool for RBD, CephFS, and object storage on NooBaa or Ceph RGW. It creates PVC/pod pairs on an OpenShift Data Foundation cluster, runs FIO workloads, exercises volume lifecycle operations (expand, clone, snapshot/restore), and verifies data integrity. `run object` runs an S3 object workload. `run fio --object` runs that workload in the same namespace as FIO.
 
 ## Prerequisites
 
@@ -42,12 +42,15 @@ make release-binaries
 ## Usage
 
 ```bash
-./odf-io-stress run [flags]
+./odf-io-stress run fio [flags]
+./odf-io-stress run object [noobaa|rgw] [flags]
 ./odf-io-stress options
 ./odf-io-stress example workload
 ./odf-io-stress example workload fio
 ./odf-io-stress example workload object
 ```
+
+`run fio` is the volume suite. `run object` is the object suite, and the backend word defaults to `noobaa`. `run fio --object` runs both in one namespace; `--object-backend` selects `noobaa` or `rgw` for that combined run. A bare `run` with no workload name still runs FIO, and `--object` / `--object-only` on that form still work.
 
 `options` prints every `run` and `generate-config` flag as JSON, including defaults and the flag interactions an agent needs. `AGENTS.md` lists the same options. `example workload` prints the FIO and object run examples and does not touch the cluster. `example workload fio` and `example workload object` print one catalog. Run without `--config` uses built-in defaults. Pass `--config` to load a YAML or JSON file; explicitly set CLI flags override matching config fields.
 
@@ -64,119 +67,119 @@ make release-binaries
 
 ```bash
 # Default run (4 PVC/pod pairs per backend)
-./odf-io-stress run
+./odf-io-stress run fio
 
 # Smaller / faster smoke run
-./odf-io-stress run --recipe smoke --results-dir results/smoke
+./odf-io-stress run fio --recipe smoke --results-dir results/smoke
 
 # App workload on one RBD volume
-./odf-io-stress run --recipe app-vm --results-dir results/app-vm
+./odf-io-stress run fio --recipe app-vm --results-dir results/app-vm
 
 # Recipe plus an override
-./odf-io-stress run --recipe smoke --runtime 15
+./odf-io-stress run fio --recipe smoke --runtime 15
 
 # 4KiB FIO block size
-./odf-io-stress run --bs 4k --recipe smoke
+./odf-io-stress run fio --bs 4k --recipe smoke
 
 # FIO container image. The built-in image is quay.io/ocsci/nginx:fio
-./odf-io-stress run --image quay.io/my-org/nginx:fio --recipe smoke
+./odf-io-stress run fio --image quay.io/my-org/nginx:fio --recipe smoke
 
 # Machine-readable FIO output
-./odf-io-stress run --format json --recipe smoke
+./odf-io-stress run fio --format json --recipe smoke
 
 # Human-readable FIO output
-./odf-io-stress run --format normal --recipe smoke
+./odf-io-stress run fio --format normal --recipe smoke
 
 # Per-backend PVC counts
-./odf-io-stress run --rbd-num-pvc 2 --cephfs-num-pvc 6
+./odf-io-stress run fio --rbd-num-pvc 2 --cephfs-num-pvc 6
 
 # Name the StorageClass for each backend
-./odf-io-stress run --rbd-storage-class ocs-storagecluster-ceph-rbd --rbd-num-pvc 1
-./odf-io-stress run --cephfs-storage-class ocs-storagecluster-cephfs --cephfs-num-pvc 1
+./odf-io-stress run fio --rbd-storage-class ocs-storagecluster-ceph-rbd --rbd-num-pvc 1
+./odf-io-stress run fio --cephfs-storage-class ocs-storagecluster-cephfs --cephfs-num-pvc 1
 
 # 20Gi volumes
-./odf-io-stress run --pvc-size 20Gi --recipe smoke
+./odf-io-stress run fio --pvc-size 20Gi --recipe smoke
 
 # Run from config; flags override file values
-./odf-io-stress run --config odf-io-stress.yaml
-./odf-io-stress run --config config.json --rbd-num-pvc 2 --runtime 30
+./odf-io-stress run fio --config odf-io-stress.yaml
+./odf-io-stress run fio --config config.json --rbd-num-pvc 2 --runtime 30
 
 # Target a specific cluster
-./odf-io-stress run --kubeconfig ~/.kube/my-odf.kubeconfig
+./odf-io-stress run fio --kubeconfig ~/.kube/my-odf.kubeconfig
 
 # Create and delete this namespace for the run
-./odf-io-stress run --namespace io-stress-lab --recipe smoke
+./odf-io-stress run fio --namespace io-stress-lab --recipe smoke
 
 # PVC and pod names start with lab-io
-./odf-io-stress run --prefix lab-io --recipe smoke
+./odf-io-stress run fio --prefix lab-io --recipe smoke
 
 # Preview manifests without creating resources
-./odf-io-stress run --dry-run
+./odf-io-stress run fio --dry-run
 
 # Create PVCs and pods only (no FIO; resources kept)
-./odf-io-stress run --setup-only --num-pvc 4
+./odf-io-stress run fio --setup-only --num-pvc 4
 
 # FIO stress only (skip lifecycle clone/snapshot and phase-3 verify_only)
-./odf-io-stress run --skip-lifecycle
+./odf-io-stress run fio --skip-lifecycle
 
 # Skip FIO stress. Lifecycle and the verify phase still run
-./odf-io-stress run --skip-fio-stress --num-pvc 1
+./odf-io-stress run fio --skip-fio-stress --num-pvc 1
 
 # Data verification: write then crc32c-verify immediately (no stress suite, no lifecycle)
-./odf-io-stress run --write-verify
-./odf-io-stress run --write-verify --fio-size 2G
-./odf-io-stress run --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
-./odf-io-stress run --write-verify --num-pvc 4 --no-cleanup
+./odf-io-stress run fio --write-verify
+./odf-io-stress run fio --write-verify --fio-size 2G
+./odf-io-stress run fio --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
+./odf-io-stress run fio --write-verify --num-pvc 4 --no-cleanup
 
 # Lifecycle integrity verify (default): seed then verify_only on clone/restore
-./odf-io-stress run --seed-size 256m
+./odf-io-stress run fio --seed-size 256m
 
 # Run expand, clone, and snapshot on every pod
-./odf-io-stress run --lifecycle-interval 1 --num-pvc 2
+./odf-io-stress run fio --lifecycle-interval 1 --num-pvc 2
 
 # Grow each lifecycle PVC to 3 times its size
-./odf-io-stress run --expand-factor 3 --lifecycle-interval 1 --num-pvc 1
+./odf-io-stress run fio --expand-factor 3 --lifecycle-interval 1 --num-pvc 1
 
 # Use this VolumeSnapshotClass for snapshot and restore
-./odf-io-stress run --snapshot-class ocs-storagecluster-rbdplugin-snapclass --rbd-num-pvc 1
+./odf-io-stress run fio --snapshot-class ocs-storagecluster-rbdplugin-snapclass --rbd-num-pvc 1
 
 # Background randrw during lifecycle, for 60 seconds
-./odf-io-stress run --sustain-runtime 60 --lifecycle-interval 1 --num-pvc 1
+./odf-io-stress run fio --sustain-runtime 60 --lifecycle-interval 1 --num-pvc 1
 
 # Wait up to 10 minutes for PVCs and pods. RBD clone and restore use this wait
-./odf-io-stress run --timeout 10m --recipe smoke
+./odf-io-stress run fio --timeout 10m --recipe smoke
 
 # Wait up to 30 minutes for a CephFS clone or restore to bind
-./odf-io-stress run --clone-timeout 30m --cephfs-num-pvc 1
+./odf-io-stress run fio --clone-timeout 30m --cephfs-num-pvc 1
 
 # Keep resources after the run
-./odf-io-stress run --no-cleanup
+./odf-io-stress run fio --no-cleanup
 
 # Run with application workload profiles
-./odf-io-stress run --app-type nfs
-./odf-io-stress run --app-type vm,database
-./odf-io-stress run --app-type nfs,vm,database --runtime 120
+./odf-io-stress run fio --app-type nfs
+./odf-io-stress run fio --app-type vm,database
+./odf-io-stress run fio --app-type nfs,vm,database --runtime 120
 
 # Run FIO jobs one at a time
-./odf-io-stress run --sequential --recipe smoke
+./odf-io-stress run fio --sequential --recipe smoke
 
 # Parallel FIO, including when a config file set sequential
-./odf-io-stress run --config odf-io-stress.yaml --sequential=false
+./odf-io-stress run fio --config odf-io-stress.yaml --sequential=false
 
 # At most two pods run FIO at once. 0 is unlimited
-./odf-io-stress run --max-parallel 2 --num-pvc 4
+./odf-io-stress run fio --max-parallel 2 --num-pvc 4
 
 # Create, bind, and expand one volume at a time
-./odf-io-stress run --max-parallel-provision 1 --num-pvc 4
+./odf-io-stress run fio --max-parallel-provision 1 --num-pvc 4
 
 # Start each FIO job at a byte offset
-./odf-io-stress run --offset 1M --recipe smoke
+./odf-io-stress run fio --offset 1M --recipe smoke
 
 # Object workload only (no PVCs). See "Object workload" below.
-./odf-io-stress run --object-only --object-profile smoke --results-dir results/object-smoke
+./odf-io-stress run object noobaa --object-profile smoke --results-dir results/object-smoke
 
 # Same phases against Ceph RGW (OBC provisioning)
-./odf-io-stress run --object-only --object-backend rgw --object-profile smoke --results-dir results/object-rgw-smoke
+./odf-io-stress run object rgw --object-profile smoke --results-dir results/object-rgw-smoke
 ```
 
 ### Generate config
@@ -237,7 +240,7 @@ tools:
   smallfiles: {}
 
   object:
-    enabled: false                 # true, or pass --object / --object-only
+    enabled: false                 # true via `run object` or `run fio --object`
     profile: standard              # smoke | standard | scale | large
     image: ghcr.io/paraggit/odf-io-stress:latest
     buckets: 10
@@ -290,9 +293,9 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--snapshot-class` | _(auto)_ | Override VolumeSnapshotClass |
 | `--sustain-runtime` | `runtime*3` | Sustain workload duration (seconds) |
 | `--app-type` | _(none)_ | Comma-separated app profiles from `tools.fio.app_suites` (built-ins: `nfs`, `vm`, `database`, `messaging`, `ai`) |
-| `--object` | `false` | Enable the object workload alongside FIO |
-| `--object-only` | `false` | Run only the object workload. Sets RBD and CephFS PVC counts to 0 and skips FIO |
-| `--object-backend` | `noobaa` | Object backend: `noobaa` or `rgw` |
+| `--object` | `false` | On `run fio` or a bare `run`, also run the object workload in the same namespace |
+| `--object-only` | `false` | On a bare `run`, run only the object workload. Sets RBD and CephFS PVC counts to 0 and skips FIO. `run object` does this without the flag |
+| `--object-backend` | `noobaa` | Backend for `run fio --object` and a bare `run`: `noobaa` or `rgw`. On `run object`, pass `noobaa` or `rgw` as a word |
 | `--object-profile` | `standard` | `smoke`, `standard`, `scale`, or `large`. Applied before the other object flags |
 | `--object-image` | `ghcr.io/paraggit/odf-io-stress:latest` | Custom worker image. Overrides the profile and the config file. The image must contain this binary |
 | `--object-buckets` | `10` | Number of buckets |
@@ -306,9 +309,9 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 | `--object-delete-mode` | `both` | `recursive`, `obc-only`, or `both` |
 | `--object-storage-class` | `openshift-storage.noobaa.io` | ObjectBucketClaim StorageClass |
 | `--object-obc-delete-timeout` | `10m` | Wait for ObjectBucketClaim deletion |
-| `--object-provisioning` | `obc` | `obc` or `s3` (direct `CreateBucket` with the `noobaa-admin` secret; rejected with `--object-backend=rgw`) |
+| `--object-provisioning` | `obc` | `obc` or `s3` (direct `CreateBucket` with the `noobaa-admin` secret; rejected for `rgw`) |
 | `--object-seed` | random | 64 hex characters. Reproduces bucket names and object bytes |
-| `--object-resume` | `false` | Reuse buckets from `--object-seed`. Requires `--object-only` and does not delete the namespace |
+| `--object-resume` | `false` | Reuse buckets from `--object-seed`. Requires an object-only run (`run object` or `--object-only`) and does not delete the namespace |
 | `--object-insecure-tls` | `false` | Skip S3 TLS verification. Logged on the control plane and in the worker |
 | `--object-force` | `false` | Start the write phase even when the capacity preflight fails |
 
@@ -321,9 +324,9 @@ Each suite entry is a pattern with `name`, optional `category`/`size`/`runtime`,
 
 ## Object workload
 
-`--object` runs an S3 object workload in the same namespace as FIO. `--object-only` runs it alone: PVC counts become 0 and FIO is skipped. Without either flag, a run is unchanged. `--object-backend` selects NooBaa / MCG (`noobaa`, the default) or Ceph RGW (`rgw`). The same phase engine, worker image, and profiles apply to both.
+`run object` runs an S3 object workload by itself: PVC counts become 0 and FIO is skipped. The backend word is `noobaa` (the default) or `rgw`. `run fio --object` runs that workload in the same namespace as FIO, and `--object-backend` selects the backend for that combined run. A bare `run` is unchanged unless you pass `--object` or `--object-only`. The same phase engine, worker image, and profiles apply to both backends.
 
-With `--object-backend=rgw`, the run reuses the object workload through ObjectBucketClaims: it discovers the StorageClass whose provisioner is `openshift-storage.ceph.rook.io/bucket` unless you set `--object-storage-class`, and validation rejects `--object-provisioning=s3` (OBC is the supported path for RGW). Scale and large profiles are unchanged.
+`run object rgw` reuses the object workload through ObjectBucketClaims: it discovers the StorageClass whose provisioner is `openshift-storage.ceph.rook.io/bucket` unless you set `--object-storage-class`, and validation rejects `--object-provisioning=s3` (OBC is the supported path for RGW). Scale and large profiles are unchanged.
 
 The control plane uses only the Kubernetes API. Worker pods run this binary's `s3-worker` command and make every S3 call, including bucket creation when `--object-provisioning s3`. Build an image with `make image` and pass it on the command line with `--object-image`. The default is `ghcr.io/paraggit/odf-io-stress:latest`. [docs/object-image.md](docs/object-image.md) is the build and push walkthrough.
 
@@ -333,105 +336,105 @@ Bucket names come from the seed: `<key-prefix>-<first 8 hex chars>-<ordinal>`, f
 
 ```bash
 # Short run: 2 buckets, 500 objects, full verify, no PVCs
-./odf-io-stress run --object-only --object-profile smoke --results-dir results/object-smoke
+./odf-io-stress run object noobaa --object-profile smoke --results-dir results/object-smoke
 
 # Same phases against Ceph RGW (OBC provisioning)
-./odf-io-stress run --object-only --object-backend rgw --object-profile smoke --results-dir results/object-rgw-smoke
+./odf-io-stress run object rgw --object-profile smoke --results-dir results/object-rgw-smoke
 
 # Default shape: 10 buckets, 5000 objects each
-./odf-io-stress run --object-only --object-profile standard --results-dir results/object-standard
+./odf-io-stress run object --object-profile standard --results-dir results/object-standard
 
 # One million small objects across 50 buckets (sampled verify)
-./odf-io-stress run --object-only --object-profile scale --results-dir results/object-scale
+./odf-io-stress run object --object-profile scale --results-dir results/object-scale
 
 # Large multipart objects
-./odf-io-stress run --object-only --object-profile large --results-dir results/object-large
+./odf-io-stress run object --object-profile large --results-dir results/object-large
 
 # Large multipart objects on Ceph RGW
-./odf-io-stress run --object-only --object-backend rgw --object-profile large --results-dir results/object-rgw-large
+./odf-io-stress run object rgw --object-profile large --results-dir results/object-rgw-large
 
 # Shrink a profile. Explicit flags override the profile
-./odf-io-stress run --object-only --object-profile smoke --object-buckets 1 --object-count 20
+./odf-io-stress run object --object-profile smoke --object-buckets 1 --object-count 20
 
 # Use your own worker image instead of ghcr.io/paraggit/odf-io-stress:latest
-./odf-io-stress run --object-only --object-profile smoke \
+./odf-io-stress run object --object-profile smoke \
   --object-image quay.io/my-org/odf-io-stress:dev \
   --results-dir results/object-smoke
 
 # Object workload and a FIO smoke recipe in the same namespace
-./odf-io-stress run --object --object-profile smoke --recipe smoke --results-dir results/both
+./odf-io-stress run fio --recipe smoke --object --object-profile smoke --results-dir results/both
 
 # Print ObjectBucketClaim and worker-pod YAML. Creates nothing
-./odf-io-stress run --object-only --object-profile smoke --dry-run
+./odf-io-stress run object --object-profile smoke --dry-run
 
 # Name the RGW bucket StorageClass instead of discovering it
-./odf-io-stress run --object-only --object-backend rgw --object-profile smoke \
+./odf-io-stress run object rgw --object-profile smoke \
   --object-storage-class ocs-storagecluster-ceph-rgw --dry-run
 
 # Flat keys (one prefix) and ETag checks
-./odf-io-stress run --object-only --object-profile smoke --object-key-layout flat --object-verify etag
+./odf-io-stress run object --object-profile smoke --object-key-layout flat --object-verify etag
 
 # Deep key layout
-./odf-io-stress run --object-only --object-profile smoke --object-key-layout deep
+./odf-io-stress run object --object-profile smoke --object-key-layout deep
 
 # Hashed key prefixes and a full read of every object
-./odf-io-stress run --object-only --object-profile smoke --object-key-layout hashed --object-verify full
+./odf-io-stress run object --object-profile smoke --object-key-layout hashed --object-verify full
 
 # Verify a 1% sample of objects
-./odf-io-stress run --object-only --object-profile smoke --object-verify sample
+./odf-io-stress run object --object-profile smoke --object-verify sample
 
 # Half the objects are 4KB and half are 64KB
-./odf-io-stress run --object-only --object-profile smoke --object-size-mix 4KB:50,64KB:50
+./odf-io-stress run object --object-profile smoke --object-size-mix 4KB:50,64KB:50
 
 # One worker pod per object phase
-./odf-io-stress run --object-only --object-profile smoke --object-workers 1
+./odf-io-stress run object --object-profile smoke --object-workers 1
 
 # Version both smoke buckets. The smoke profile itself versions one
-./odf-io-stress run --object-only --object-profile smoke --object-versioned 2
+./odf-io-stress run object --object-profile smoke --object-versioned 2
 
 # Keep the buckets, then verify them later. Copy object-seed from the first summary
-./odf-io-stress run --object-only --object-profile smoke --no-cleanup --results-dir results/object-keep
-./odf-io-stress run --object-only --object-resume --object-seed <seed> \
+./odf-io-stress run object --object-profile smoke --no-cleanup --results-dir results/object-keep
+./odf-io-stress run object --object-resume --object-seed <seed> \
   --object-profile smoke --object-phases verify --results-dir results/object-verify
 
 # Write, then stop before delete, using a seed you choose
-./odf-io-stress run --object-only --object-profile smoke \
+./odf-io-stress run object --object-profile smoke \
   --object-seed 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   --object-phases create,write,verify --no-cleanup
 
 # Empty every bucket before deleting its claim
-./odf-io-stress run --object-only --object-profile smoke --object-delete-mode recursive
+./odf-io-stress run object --object-profile smoke --object-delete-mode recursive
 
 # Delete claims while the buckets are still full (finalizer case)
-./odf-io-stress run --object-only --object-profile smoke --object-delete-mode obc-only
+./odf-io-stress run object --object-profile smoke --object-delete-mode obc-only
 
 # Empty even-ordinal buckets and delete odd-ordinal claims while they are still full
-./odf-io-stress run --object-only --object-profile smoke --object-delete-mode both
+./odf-io-stress run object --object-profile smoke --object-delete-mode both
 
 # Wait 20 minutes for ObjectBucketClaim deletion
-./odf-io-stress run --object-only --object-profile smoke --object-obc-delete-timeout 20m
+./odf-io-stress run object --object-profile smoke --object-obc-delete-timeout 20m
 
 # NooBaa buckets provisioned by ObjectBucketClaims
-./odf-io-stress run --object-only --object-backend noobaa --object-provisioning obc --object-profile smoke
+./odf-io-stress run object noobaa --object-provisioning obc --object-profile smoke
 
 # Create buckets with the noobaa-admin secret instead of ObjectBucketClaims
-./odf-io-stress run --object-only --object-profile smoke --object-provisioning s3
+./odf-io-stress run object --object-profile smoke --object-provisioning s3
 
 # Start the write phase even when the capacity preflight fails
-./odf-io-stress run --object-only --object-profile large --object-force
+./odf-io-stress run object --object-profile large --object-force
 
 # Skip S3 TLS verification. The skip is logged
-./odf-io-stress run --object-only --object-profile smoke --object-insecure-tls
+./odf-io-stress run object --object-profile smoke --object-insecure-tls
 
 # From a config file; flags still override
-./odf-io-stress run --config odf-io-stress.yaml --object-only --object-profile smoke
-./odf-io-stress run --config odf-io-stress.yaml --object-only \
+./odf-io-stress run object --config odf-io-stress.yaml --object-profile smoke
+./odf-io-stress run object --config odf-io-stress.yaml \
   --object-image quay.io/my-org/odf-io-stress:dev
 ```
 
-A phase list that omits `create` has to be a resume (`--object-resume --object-only --object-seed`). Otherwise the namespace reset would delete the buckets the later phases need. `--object-resume` also skips deleting the namespace at the end. `--no-cleanup` on the first run is what leaves the buckets in place.
+A phase list that omits `create` has to be a resume (`run object --object-resume --object-seed`, or `--object-resume --object-only --object-seed` on a bare `run`). Otherwise the namespace reset would delete the buckets the later phases need. `--object-resume` also skips deleting the namespace at the end. `--no-cleanup` on the first run is what leaves the buckets in place.
 
-`--setup-only` still wins when both are set: the command provisions (nothing, if `--object-only`) and exits before the object phases.
+`--setup-only` still wins when both are set: the command provisions (nothing, on an object-only run) and exits before the object phases.
 
 ### Profiles
 
@@ -490,9 +493,9 @@ tools:
 
 ```bash
 ./odf-io-stress generate-config -o odf-io-stress.yaml
-./odf-io-stress run --config odf-io-stress.yaml --object-only
+./odf-io-stress run object --config odf-io-stress.yaml
 # A flag still wins over tools.object.image in the file
-./odf-io-stress run --config odf-io-stress.yaml --object-only \
+./odf-io-stress run object --config odf-io-stress.yaml \
   --object-image quay.io/my-org/odf-io-stress:dev
 ```
 
@@ -506,13 +509,13 @@ Transport errors, including a short HTTP read failure, are retried in the worker
 
 ```bash
 # VM-like IO on all default PVCs (4 RBD + 4 CephFS)
-./odf-io-stress run --app-type vm --runtime 60
+./odf-io-stress run fio --app-type vm --runtime 60
 
 # Same, but only 2 RBD volumes (no CephFS)
-./odf-io-stress run --app-type vm --rbd-num-pvc 2 --runtime 60
+./odf-io-stress run fio --app-type vm --rbd-num-pvc 2 --runtime 60
 
 # Multiple profiles: each pod runs nfs then database suites
-./odf-io-stress run --app-type nfs,database --rbd-num-pvc 2 --cephfs-num-pvc 2
+./odf-io-stress run fio --app-type nfs,database --rbd-num-pvc 2 --cephfs-num-pvc 2
 ```
 
 | App type | Simulates | Suggested volume shape | IO patterns |
@@ -557,7 +560,7 @@ tools:
 Then:
 
 ```bash
-./odf-io-stress run --config my.yaml
+./odf-io-stress run fio --config my.yaml
 ```
 
 Built-in profiles remain available unless you override the same key. Pattern `params` are FIO-native flags (same model as `tools.fio.suites`).
@@ -597,8 +600,8 @@ There are two integrity paths. `--write-verify` writes and checks crc32c in the 
 `--setup-only` / `cluster.setup_only` creates the namespace, PVCs, and FIO pods, waits until they are Bound/Ready, then exits. FIO, lifecycle, and phase-3 verify are not run. Cleanup is skipped (`--no-cleanup`) so the resources stay in the cluster (for example a manual `fio` exec). Each new `run` still resets the namespace.
 
 ```bash
-./odf-io-stress run --setup-only --num-pvc 4
-./odf-io-stress run --setup-only --rbd-num-pvc 2 --cephfs-num-pvc 0
+./odf-io-stress run fio --setup-only --num-pvc 4
+./odf-io-stress run fio --setup-only --rbd-num-pvc 2 --cephfs-num-pvc 0
 ```
 
 `--dry-run --setup-only` still only prints manifests.
@@ -611,19 +614,19 @@ Use this when you only care that the storage can **write and read back crc32c co
 
 ```bash
 # All default PVCs (4 RBD + 4 CephFS), 1G write+verify each
-./odf-io-stress run --write-verify
+./odf-io-stress run fio --write-verify
 
 # Larger region
-./odf-io-stress run --write-verify --fio-size 2G
+./odf-io-stress run fio --write-verify --fio-size 2G
 
 # RBD only (Filesystem + Block pods)
-./odf-io-stress run --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
+./odf-io-stress run fio --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
 
 # Leave pods up after verify
-./odf-io-stress run --write-verify --num-pvc 4 --no-cleanup
+./odf-io-stress run fio --write-verify --num-pvc 4 --no-cleanup
 
 # From config
-./odf-io-stress run --config odf-io-stress.yaml
+./odf-io-stress run fio --config odf-io-stress.yaml
 ```
 
 ```yaml
@@ -646,13 +649,13 @@ A normal `run` (without `--write-verify`) still verifies data, but later: phase 
 
 ```bash
 # Full suite including clone/restore integrity
-./odf-io-stress run
+./odf-io-stress run fio
 
 # Smaller Block seed/verify extent (default 512m)
-./odf-io-stress run --seed-size 256m
+./odf-io-stress run fio --seed-size 256m
 
 # Skip that path entirely
-./odf-io-stress run --skip-lifecycle
+./odf-io-stress run fio --skip-lifecycle
 ```
 
 ```yaml
@@ -696,7 +699,7 @@ Stdout is that same `summary.json` object. Logs and the human `=== RESULTS ===` 
 
 Exit status: `0` pass, `1` the run finished and at least one job failed, `2` bad config or usage, `3` the cluster step failed before jobs finished. A non-zero exit sets the JSON `error` field (`N job(s) failed` on exit 1). `failures[].classification` is `harness` (known verify false positive), `storage`, or `unknown`. `failures[].durationSeconds` is seconds; `report.json` `duration` remains a Go duration in nanoseconds.
 
-On an object run, exit 2 is also a cleanup failure after the workload passed (stuck OBC finalizers; the report is still written) and exit 3 is also an infrastructure failure (`infra-fail`, classification `infra`). Those two classifications are `cleanup` and `infra`. A capability the cluster does not implement is `skip`, not a failure. `--object-only` leaves `phase1`, `lifecycle`, and the FIO and volume flags out of `summary.json`. The human results block for that run is the object lines only.
+On an object run, exit 2 is also a cleanup failure after the workload passed (stuck OBC finalizers; the report is still written) and exit 3 is also an infrastructure failure (`infra-fail`, classification `infra`). Those two classifications are `cleanup` and `infra`. A capability the cluster does not implement is `skip`, not a failure. An object-only run leaves `phase1`, `lifecycle`, and the FIO and volume flags out of `summary.json`. The human results block for that run is the object lines only.
 
 The `results/` directory is gitignored.
 

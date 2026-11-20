@@ -100,7 +100,7 @@ func describeRecipe(cfg *Config, name string) Recipe {
 	return Recipe{
 		Name:             name,
 		Description:      recipeDescription(name),
-		Argv:             []string{"odf-io-stress", "run", "--recipe", name, "--results-dir", "results/" + name},
+		Argv:             []string{"odf-io-stress", "run", "fio", "--recipe", name, "--results-dir", "results/" + name},
 		RBDNumPVC:        cfg.Cluster.RBD.NumPVC,
 		CephFSNumPVC:     cfg.Cluster.CephFS.NumPVC,
 		Runtime:          cfg.Tools.FIO.Runtime,

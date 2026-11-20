@@ -95,21 +95,21 @@ Worker pods do not set `imagePullPolicy`. Kubernetes then uses `Always` when the
 
 ```bash
 # Default image, ghcr.io/paraggit/odf-io-stress:latest
-./odf-io-stress run --object-only --object-profile smoke \
+./odf-io-stress run object --object-profile smoke \
   --results-dir results/object-smoke
 
 # Image you built and pushed
-./odf-io-stress run --object-only --object-profile smoke \
+./odf-io-stress run object --object-profile smoke \
   --object-image quay.io/my-org/odf-io-stress:dev \
   --results-dir results/object-smoke
 ```
 
-`--object-image` overrides the profile default and `tools.object.image` in a config file. The same flag works with `--object` when FIO runs in the same namespace.
+`--object-image` overrides the profile default and `tools.object.image` in a config file. The same flag works with `run fio --object` when FIO runs in the same namespace.
 
 Confirm the reference before creating anything:
 
 ```bash
-./odf-io-stress run --object-only --object-profile smoke --dry-run \
+./odf-io-stress run object --object-profile smoke --dry-run \
   --object-image quay.io/my-org/odf-io-stress:dev
 ```
 

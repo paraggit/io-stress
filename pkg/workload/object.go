@@ -111,7 +111,7 @@ func runObject(ctx context.Context, cfg *config.Config, client *k8s.Client, coll
 			return err
 		}
 	} else if !containsPhase(phases, "create") {
-		return &UsageError{Err: fmt.Errorf("object phases omit create; pass --object-resume --object-only --object-seed to reuse buckets, or include create")}
+		return &UsageError{Err: fmt.Errorf("object phases omit create; resume with run object --object-resume --object-seed, or include create")}
 	}
 	for _, phase := range phases {
 		if err := ctx.Err(); err != nil {

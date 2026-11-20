@@ -6,11 +6,14 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 
 ## Commands
 
-- `odf-io-stress run` runs the suite. Stdout is one JSON summary. Logs go to stderr.
+- `odf-io-stress run fio` runs the FIO suite. Stdout is one JSON summary. Logs go to stderr.
+- `odf-io-stress run object [noobaa|rgw]` runs only the object workload. Omitting the backend means noobaa.
+- `odf-io-stress run fio --object` also runs the object workload in that namespace. `--object-backend` selects noobaa or rgw.
+- `odf-io-stress run` with no workload name still runs FIO. `--object` and `--object-only` on that form still select the object workload.
 - `odf-io-stress options` prints every option. It does not touch the cluster.
 - `odf-io-stress example workload` prints FIO and object run examples. `example workload fio` and `example workload object` print one catalog. `example fio` and `example object` do the same. None of these touch the cluster. An unknown workload name exits 2 with a human message, not an agent JSON summary.
 - `odf-io-stress generate-config` writes a sample config. It does not run a workload.
-- `odf-io-stress --help` and `odf-io-stress run --help` print human help.
+- `odf-io-stress --help`, `odf-io-stress run --help`, `odf-io-stress run fio --help`, and `odf-io-stress run object --help` print human help.
 
 ## Option rules
 
@@ -29,7 +32,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 - --format is the FIO output format: json or normal.
 - tools.vdbench and tools.smallfiles in a config file are ignored.
 - generate-config writes a sample config. -o - writes it to stdout. --force overwrites an existing file. It does not run a workload.
-- The object workload is opt-in via --object. --object-only sets RBD and CephFS PVC counts to 0, skips FIO stress and lifecycle, and is the only case where zero PVCs is valid. --object-resume requires --object-only and --object-seed and does not delete the namespace. --object-profile (smoke, standard, scale, large) applies before other explicit object flags. delete_mode both empties even-ordinal buckets and deletes odd-ordinal OBCs while they are still full; a single bucket uses obc-only. S3 calls run only in worker pods. A capability probe answer of NotImplemented, MethodNotAllowed, AccessDenied, HTTP 403, HTTP 405, or HTTP 501 skips that capability instead of failing the run. --object-backend is noobaa or rgw (default noobaa); rgw discovers the StorageClass whose provisioner is openshift-storage.ceph.rook.io/bucket unless --object-storage-class is set; --object-provisioning=s3 is rejected for rgw; --object-obc-delete-timeout defaults to 10m.
+- run fio runs the FIO suite. run object runs only the object workload: it sets RBD and CephFS PVC counts to 0, skips FIO stress and lifecycle, and is the only case where zero PVCs is valid. The backend word on run object is noobaa or rgw and defaults to noobaa when omitted. run fio --object runs the object workload in the same namespace as FIO, and --object-backend on that command selects noobaa or rgw. A bare run with no workload name still runs FIO, and --object / --object-only on a bare run still select the object workload. On run object, --object-backend must match the backend word when both are set. --object-resume requires an object-only run and --object-seed and does not delete the namespace. --object-profile (smoke, standard, scale, large) applies before other explicit object flags. delete_mode both empties even-ordinal buckets and deletes odd-ordinal OBCs while they are still full; a single bucket uses obc-only. S3 calls run only in worker pods. A capability probe answer of NotImplemented, MethodNotAllowed, AccessDenied, HTTP 403, HTTP 405, or HTTP 501 skips that capability instead of failing the run. rgw discovers the StorageClass whose provisioner is openshift-storage.ceph.rook.io/bucket unless --object-storage-class is set; --object-provisioning=s3 is rejected for rgw; --object-obc-delete-timeout defaults to 10m.
 
 ## run options
 
@@ -70,9 +73,9 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--max-parallel-provision` | `4` | Max in-flight PVC create, bind, pod create, clone, restore, and expand operations |
 | `--sequential` | `false` | Run FIO jobs one at a time |
 | `--app-type` | empty | Comma-separated profiles: `nfs`, `vm`, `database`, `messaging`, `ai` |
-| `--object` | `false` | Enable the NooBaa object workload |
-| `--object-only` | `false` | Run only the object workload (no PVCs or FIO) |
-| `--object-backend` | `noobaa` | Object backend: `noobaa` or `rgw` |
+| `--object` | `false` | On `run fio` or a bare `run`, also run the object workload in the same namespace |
+| `--object-only` | `false` | On a bare `run`, run only the object workload (no PVCs or FIO). `run object` does this without the flag |
+| `--object-backend` | `noobaa` | Backend for `run fio --object` and a bare `run`: `noobaa` or `rgw`. On `run object`, the word `noobaa` or `rgw` selects it |
 | `--object-profile` | `standard` | Object profile: `smoke`, `standard`, `scale`, or `large` |
 | `--object-image` | `ghcr.io/paraggit/odf-io-stress:latest` | Custom object worker image. Overrides the profile and the config file |
 | `--object-buckets` | `10` | Number of object buckets |
@@ -88,7 +91,7 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `--object-obc-delete-timeout` | `10m` | Wait for ObjectBucketClaim deletion |
 | `--object-provisioning` | `obc` | Bucket provisioning: `obc` or `s3` |
 | `--object-seed` | empty | Hex seed; reproduces a prior object run |
-| `--object-resume` | `false` | Reuse buckets from `--object-seed`; requires `--object-only` and does not delete the namespace |
+| `--object-resume` | `false` | Reuse buckets from `--object-seed`. Requires an object-only run (`run object` or `--object-only`) and does not delete the namespace |
 | `--object-insecure-tls` | `false` | Skip S3 TLS verification (logged) |
 | `--object-force` | `false` | Run the object workload even when the capacity preflight fails |
 
@@ -105,8 +108,8 @@ After a run, `summary.json` field `options` is the effective set that was used. 
 | `full` | 4 RBD and 4 CephFS, stress, lifecycle, and verify |
 
 ```bash
-odf-io-stress run --recipe app-vm --results-dir results/app-vm
-odf-io-stress run --recipe smoke --runtime 15 --results-dir results/smoke
+odf-io-stress run fio --recipe app-vm --results-dir results/app-vm
+odf-io-stress run fio --recipe smoke --runtime 15 --results-dir results/smoke
 ```
 
 ## generate-config options
@@ -120,7 +123,7 @@ odf-io-stress run --recipe smoke --runtime 15 --results-dir results/smoke
 
 Stdout of `run` is one JSON object. The same bytes are `summary.json` in the results directory. Logs and the human `=== RESULTS ===` block go to stderr.
 
-`options` on that object is the effective flag set for the run. `num-pvc` is present only when the RBD and CephFS counts are equal. `rbd-num-pvc` and `cephfs-num-pvc` are always the counts that were used. An `--object-only` run omits `phase1`, `lifecycle`, and the FIO and volume flags. Its human results block has the object lines only, and the log does not say phase 1 was skipped.
+`options` on that object is the effective flag set for the run. `num-pvc` is present only when the RBD and CephFS counts are equal. `rbd-num-pvc` and `cephfs-num-pvc` are always the counts that were used. An object-only run (`run object`, or `--object-only` on a bare `run`) omits `phase1`, `lifecycle`, and the FIO and volume flags. Its human results block has the object lines only, and the log does not say phase 1 was skipped.
 
 | Exit | Meaning | What to read |
 |------|---------|----------------|
