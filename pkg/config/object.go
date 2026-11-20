@@ -170,7 +170,7 @@ func validateObject(cfg *Config) error {
 	o := cfg.Tools.Object
 	if o.Resume {
 		if !o.Only {
-			return fmt.Errorf("--object-resume requires --object-only")
+			return fmt.Errorf("--object-resume requires an object-only run (run object, or --object-only)")
 		}
 		if strings.TrimSpace(o.Seed) == "" {
 			return fmt.Errorf("--object-resume requires --object-seed")

@@ -26,7 +26,7 @@ func TestRecipesCoverNamedRuns(t *testing.T) {
 	if !smoke.DeletesNamespace || smoke.Namespace != "odf-io-stress" {
 		t.Fatalf("smoke namespace = %+v", smoke)
 	}
-	wantArgv := []string{"odf-io-stress", "run", "--recipe", "smoke", "--results-dir", "results/smoke"}
+	wantArgv := []string{"odf-io-stress", "run", "fio", "--recipe", "smoke", "--results-dir", "results/smoke"}
 	if !reflect.DeepEqual(smoke.Argv, wantArgv) {
 		t.Fatalf("argv = %v", smoke.Argv)
 	}

@@ -4,239 +4,239 @@ package main
 // They do not touch the cluster.
 var workloadExamples = map[string]string{
 	"fio": `# Default run (4 PVC/pod pairs per backend)
-./odf-io-stress run
+./odf-io-stress run fio
 
 # Smaller / faster smoke run
-./odf-io-stress run --recipe smoke --results-dir results/smoke
+./odf-io-stress run fio --recipe smoke --results-dir results/smoke
 
 # App workload on one RBD volume
-./odf-io-stress run --recipe app-vm --results-dir results/app-vm
+./odf-io-stress run fio --recipe app-vm --results-dir results/app-vm
 
 # Recipe plus an override
-./odf-io-stress run --recipe smoke --runtime 15
+./odf-io-stress run fio --recipe smoke --runtime 15
 
 # 4KiB FIO block size
-./odf-io-stress run --bs 4k --recipe smoke
+./odf-io-stress run fio --bs 4k --recipe smoke
 
 # FIO container image. The built-in image is quay.io/ocsci/nginx:fio
-./odf-io-stress run --image quay.io/my-org/nginx:fio --recipe smoke
+./odf-io-stress run fio --image quay.io/my-org/nginx:fio --recipe smoke
 
 # Machine-readable FIO output
-./odf-io-stress run --format json --recipe smoke
+./odf-io-stress run fio --format json --recipe smoke
 
 # Human-readable FIO output
-./odf-io-stress run --format normal --recipe smoke
+./odf-io-stress run fio --format normal --recipe smoke
 
 # Per-backend PVC counts
-./odf-io-stress run --rbd-num-pvc 2 --cephfs-num-pvc 6
+./odf-io-stress run fio --rbd-num-pvc 2 --cephfs-num-pvc 6
 
 # Name the StorageClass for each backend
-./odf-io-stress run --rbd-storage-class ocs-storagecluster-ceph-rbd --rbd-num-pvc 1
-./odf-io-stress run --cephfs-storage-class ocs-storagecluster-cephfs --cephfs-num-pvc 1
+./odf-io-stress run fio --rbd-storage-class ocs-storagecluster-ceph-rbd --rbd-num-pvc 1
+./odf-io-stress run fio --cephfs-storage-class ocs-storagecluster-cephfs --cephfs-num-pvc 1
 
 # 20Gi volumes
-./odf-io-stress run --pvc-size 20Gi --recipe smoke
+./odf-io-stress run fio --pvc-size 20Gi --recipe smoke
 
 # Run from config; flags override file values
-./odf-io-stress run --config odf-io-stress.yaml
-./odf-io-stress run --config config.json --rbd-num-pvc 2 --runtime 30
+./odf-io-stress run fio --config odf-io-stress.yaml
+./odf-io-stress run fio --config config.json --rbd-num-pvc 2 --runtime 30
 
 # Target a specific cluster
-./odf-io-stress run --kubeconfig ~/.kube/my-odf.kubeconfig
+./odf-io-stress run fio --kubeconfig ~/.kube/my-odf.kubeconfig
 
 # Create and delete this namespace for the run
-./odf-io-stress run --namespace io-stress-lab --recipe smoke
+./odf-io-stress run fio --namespace io-stress-lab --recipe smoke
 
 # PVC and pod names start with lab-io
-./odf-io-stress run --prefix lab-io --recipe smoke
+./odf-io-stress run fio --prefix lab-io --recipe smoke
 
 # Preview manifests without creating resources
-./odf-io-stress run --dry-run
+./odf-io-stress run fio --dry-run
 
 # Create PVCs and pods only (no FIO; resources kept)
-./odf-io-stress run --setup-only --num-pvc 4
+./odf-io-stress run fio --setup-only --num-pvc 4
 
 # FIO stress only (skip lifecycle clone/snapshot and phase-3 verify_only)
-./odf-io-stress run --skip-lifecycle
+./odf-io-stress run fio --skip-lifecycle
 
 # Skip FIO stress. Lifecycle and the verify phase still run
-./odf-io-stress run --skip-fio-stress --num-pvc 1
+./odf-io-stress run fio --skip-fio-stress --num-pvc 1
 
 # Data verification: write then crc32c-verify immediately (no stress suite, no lifecycle)
-./odf-io-stress run --write-verify
-./odf-io-stress run --write-verify --fio-size 2G
-./odf-io-stress run --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
-./odf-io-stress run --write-verify --num-pvc 4 --no-cleanup
+./odf-io-stress run fio --write-verify
+./odf-io-stress run fio --write-verify --fio-size 2G
+./odf-io-stress run fio --write-verify --rbd-num-pvc 2 --cephfs-num-pvc 0
+./odf-io-stress run fio --write-verify --num-pvc 4 --no-cleanup
 
 # Lifecycle integrity verify (default): seed then verify_only on clone/restore
-./odf-io-stress run --seed-size 256m
+./odf-io-stress run fio --seed-size 256m
 
 # Run expand, clone, and snapshot on every pod
-./odf-io-stress run --lifecycle-interval 1 --num-pvc 2
+./odf-io-stress run fio --lifecycle-interval 1 --num-pvc 2
 
 # Grow each lifecycle PVC to 3 times its size
-./odf-io-stress run --expand-factor 3 --lifecycle-interval 1 --num-pvc 1
+./odf-io-stress run fio --expand-factor 3 --lifecycle-interval 1 --num-pvc 1
 
 # Use this VolumeSnapshotClass for snapshot and restore
-./odf-io-stress run --snapshot-class ocs-storagecluster-rbdplugin-snapclass --rbd-num-pvc 1
+./odf-io-stress run fio --snapshot-class ocs-storagecluster-rbdplugin-snapclass --rbd-num-pvc 1
 
 # Background randrw during lifecycle, for 60 seconds
-./odf-io-stress run --sustain-runtime 60 --lifecycle-interval 1 --num-pvc 1
+./odf-io-stress run fio --sustain-runtime 60 --lifecycle-interval 1 --num-pvc 1
 
 # Wait up to 10 minutes for PVCs and pods. RBD clone and restore use this wait
-./odf-io-stress run --timeout 10m --recipe smoke
+./odf-io-stress run fio --timeout 10m --recipe smoke
 
 # Wait up to 30 minutes for a CephFS clone or restore to bind
-./odf-io-stress run --clone-timeout 30m --cephfs-num-pvc 1
+./odf-io-stress run fio --clone-timeout 30m --cephfs-num-pvc 1
 
 # Keep resources after the run
-./odf-io-stress run --no-cleanup
+./odf-io-stress run fio --no-cleanup
 
 # Run with application workload profiles
-./odf-io-stress run --app-type nfs
-./odf-io-stress run --app-type vm,database
-./odf-io-stress run --app-type nfs,vm,database --runtime 120
+./odf-io-stress run fio --app-type nfs
+./odf-io-stress run fio --app-type vm,database
+./odf-io-stress run fio --app-type nfs,vm,database --runtime 120
 
 # Database profile on one RBD volume, lifecycle skipped
-./odf-io-stress run --recipe app-database --results-dir results/app-database
+./odf-io-stress run fio --recipe app-database --results-dir results/app-database
 
 # One crc32c write-and-verify on one RBD volume
-./odf-io-stress run --recipe write-verify --results-dir results/write-verify
+./odf-io-stress run fio --recipe write-verify --results-dir results/write-verify
 
 # Default coverage: 4 RBD and 4 CephFS, stress, lifecycle, and verify
-./odf-io-stress run --recipe full --results-dir results/full
+./odf-io-stress run fio --recipe full --results-dir results/full
 
 # One RBD volume and no CephFS. A lone per-backend count zeros the other side
-./odf-io-stress run --rbd-num-pvc 1
+./odf-io-stress run fio --rbd-num-pvc 1
 
 # One CephFS volume and no RBD
-./odf-io-stress run --cephfs-num-pvc 1
+./odf-io-stress run fio --cephfs-num-pvc 1
 
 # Create RBD PVCs and pods only
-./odf-io-stress run --setup-only --rbd-num-pvc 2 --cephfs-num-pvc 0
+./odf-io-stress run fio --setup-only --rbd-num-pvc 2 --cephfs-num-pvc 0
 
 # Run FIO jobs one at a time
-./odf-io-stress run --sequential --recipe smoke
+./odf-io-stress run fio --sequential --recipe smoke
 
 # Parallel FIO, including when a config file set sequential
-./odf-io-stress run --config odf-io-stress.yaml --sequential=false
+./odf-io-stress run fio --config odf-io-stress.yaml --sequential=false
 
 # At most two pods run FIO at once. 0 is unlimited
-./odf-io-stress run --max-parallel 2 --num-pvc 4
+./odf-io-stress run fio --max-parallel 2 --num-pvc 4
 
 # Create, bind, and expand one volume at a time
-./odf-io-stress run --max-parallel-provision 1 --num-pvc 4
+./odf-io-stress run fio --max-parallel-provision 1 --num-pvc 4
 
 # Start each FIO job at a byte offset
-./odf-io-stress run --offset 1M --recipe smoke
+./odf-io-stress run fio --offset 1M --recipe smoke
 
 # VM-like IO on the default PVCs (4 RBD and 4 CephFS)
-./odf-io-stress run --app-type vm --runtime 60
+./odf-io-stress run fio --app-type vm --runtime 60
 
 # VM-like IO on 2 RBD volumes and no CephFS
-./odf-io-stress run --app-type vm --rbd-num-pvc 2 --runtime 60
+./odf-io-stress run fio --app-type vm --rbd-num-pvc 2 --runtime 60
 
 # Each pod runs the nfs suite, then the database suite
-./odf-io-stress run --app-type nfs,database --rbd-num-pvc 2 --cephfs-num-pvc 2
+./odf-io-stress run fio --app-type nfs,database --rbd-num-pvc 2 --cephfs-num-pvc 2
 
 # Messaging (append log) and AI (checkpoint and dataset) profiles
-./odf-io-stress run --app-type messaging --runtime 120
-./odf-io-stress run --app-type ai --runtime 120
+./odf-io-stress run fio --app-type messaging --runtime 120
+./odf-io-stress run fio --app-type ai --runtime 120
 `,
 	"object": `# Short run: 2 buckets, 500 objects, full verify, no PVCs
-./odf-io-stress run --object-only --object-profile smoke --results-dir results/object-smoke
+./odf-io-stress run object noobaa --object-profile smoke --results-dir results/object-smoke
 
 # Same phases against Ceph RGW (OBC provisioning)
-./odf-io-stress run --object-only --object-backend rgw --object-profile smoke --results-dir results/object-rgw-smoke
+./odf-io-stress run object rgw --object-profile smoke --results-dir results/object-rgw-smoke
 
 # Default shape: 10 buckets, 5000 objects each
-./odf-io-stress run --object-only --object-profile standard --results-dir results/object-standard
+./odf-io-stress run object --object-profile standard --results-dir results/object-standard
 
 # One million small objects across 50 buckets (sampled verify)
-./odf-io-stress run --object-only --object-profile scale --results-dir results/object-scale
+./odf-io-stress run object --object-profile scale --results-dir results/object-scale
 
 # Large multipart objects
-./odf-io-stress run --object-only --object-profile large --results-dir results/object-large
+./odf-io-stress run object --object-profile large --results-dir results/object-large
 
 # Large multipart objects on Ceph RGW
-./odf-io-stress run --object-only --object-backend rgw --object-profile large --results-dir results/object-rgw-large
+./odf-io-stress run object rgw --object-profile large --results-dir results/object-rgw-large
 
 # Shrink a profile. Explicit flags override the profile
-./odf-io-stress run --object-only --object-profile smoke --object-buckets 1 --object-count 20
+./odf-io-stress run object --object-profile smoke --object-buckets 1 --object-count 20
 
 # Use your own worker image instead of ghcr.io/paraggit/odf-io-stress:latest
-./odf-io-stress run --object-only --object-profile smoke \
+./odf-io-stress run object --object-profile smoke \
   --object-image quay.io/my-org/odf-io-stress:dev \
   --results-dir results/object-smoke
 
 # Object workload and a FIO smoke recipe in the same namespace
-./odf-io-stress run --object --object-profile smoke --recipe smoke --results-dir results/both
+./odf-io-stress run fio --recipe smoke --object --object-profile smoke --results-dir results/both
 
 # Print ObjectBucketClaim and worker-pod YAML. Creates nothing
-./odf-io-stress run --object-only --object-profile smoke --dry-run
+./odf-io-stress run object --object-profile smoke --dry-run
 
 # Name the RGW bucket StorageClass instead of discovering it
-./odf-io-stress run --object-only --object-backend rgw --object-profile smoke \
+./odf-io-stress run object rgw --object-profile smoke \
   --object-storage-class ocs-storagecluster-ceph-rgw --dry-run
 
 # Flat keys (one prefix) and ETag checks
-./odf-io-stress run --object-only --object-profile smoke --object-key-layout flat --object-verify etag
+./odf-io-stress run object --object-profile smoke --object-key-layout flat --object-verify etag
 
 # Deep key layout
-./odf-io-stress run --object-only --object-profile smoke --object-key-layout deep
+./odf-io-stress run object --object-profile smoke --object-key-layout deep
 
 # Hashed key prefixes and a full read of every object
-./odf-io-stress run --object-only --object-profile smoke --object-key-layout hashed --object-verify full
+./odf-io-stress run object --object-profile smoke --object-key-layout hashed --object-verify full
 
 # Verify a 1% sample of objects
-./odf-io-stress run --object-only --object-profile smoke --object-verify sample
+./odf-io-stress run object --object-profile smoke --object-verify sample
 
 # Half the objects are 4KB and half are 64KB
-./odf-io-stress run --object-only --object-profile smoke --object-size-mix 4KB:50,64KB:50
+./odf-io-stress run object --object-profile smoke --object-size-mix 4KB:50,64KB:50
 
 # One worker pod per object phase
-./odf-io-stress run --object-only --object-profile smoke --object-workers 1
+./odf-io-stress run object --object-profile smoke --object-workers 1
 
 # Version both smoke buckets. The smoke profile itself versions one
-./odf-io-stress run --object-only --object-profile smoke --object-versioned 2
+./odf-io-stress run object --object-profile smoke --object-versioned 2
 
 # Keep the buckets, then verify them later. Copy object-seed from the first summary
-./odf-io-stress run --object-only --object-profile smoke --no-cleanup --results-dir results/object-keep
-./odf-io-stress run --object-only --object-resume --object-seed <seed> \
+./odf-io-stress run object --object-profile smoke --no-cleanup --results-dir results/object-keep
+./odf-io-stress run object --object-resume --object-seed <seed> \
   --object-profile smoke --object-phases verify --results-dir results/object-verify
 
 # Write, then stop before delete, using a seed you choose
-./odf-io-stress run --object-only --object-profile smoke \
+./odf-io-stress run object --object-profile smoke \
   --object-seed 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   --object-phases create,write,verify --no-cleanup
 
 # Empty every bucket before deleting its claim
-./odf-io-stress run --object-only --object-profile smoke --object-delete-mode recursive
+./odf-io-stress run object --object-profile smoke --object-delete-mode recursive
 
 # Delete claims while the buckets are still full (finalizer case)
-./odf-io-stress run --object-only --object-profile smoke --object-delete-mode obc-only
+./odf-io-stress run object --object-profile smoke --object-delete-mode obc-only
 
 # Empty even-ordinal buckets and delete odd-ordinal claims while they are still full
-./odf-io-stress run --object-only --object-profile smoke --object-delete-mode both
+./odf-io-stress run object --object-profile smoke --object-delete-mode both
 
 # Wait 20 minutes for ObjectBucketClaim deletion
-./odf-io-stress run --object-only --object-profile smoke --object-obc-delete-timeout 20m
+./odf-io-stress run object --object-profile smoke --object-obc-delete-timeout 20m
 
 # NooBaa buckets provisioned by ObjectBucketClaims
-./odf-io-stress run --object-only --object-backend noobaa --object-provisioning obc --object-profile smoke
+./odf-io-stress run object noobaa --object-provisioning obc --object-profile smoke
 
 # Create buckets with the noobaa-admin secret instead of ObjectBucketClaims
-./odf-io-stress run --object-only --object-profile smoke --object-provisioning s3
+./odf-io-stress run object --object-profile smoke --object-provisioning s3
 
 # Start the write phase even when the capacity preflight fails
-./odf-io-stress run --object-only --object-profile large --object-force
+./odf-io-stress run object --object-profile large --object-force
 
 # Skip S3 TLS verification. The skip is logged
-./odf-io-stress run --object-only --object-profile smoke --object-insecure-tls
+./odf-io-stress run object --object-profile smoke --object-insecure-tls
 
 # From a config file; flags still override
-./odf-io-stress run --config odf-io-stress.yaml --object-only --object-profile smoke
-./odf-io-stress run --config odf-io-stress.yaml --object-only \
+./odf-io-stress run object --config odf-io-stress.yaml --object-profile smoke
+./odf-io-stress run object --config odf-io-stress.yaml \
   --object-image quay.io/my-org/odf-io-stress:dev
 `,
 }
